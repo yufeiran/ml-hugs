@@ -20,6 +20,8 @@ from hugs.utils.config import get_cfg_items
 from hugs.cfg.config import cfg as default_cfg
 from hugs.utils.general import safe_state, find_cfg_diff
 
+from segmentation import ClothSegemntation
+
 
 def get_logger(cfg):
     output_path = cfg.output_path
@@ -87,6 +89,7 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--cfg_file", required=True, help="path to the yaml config file")
     parser.add_argument("--cfg_id", type=int, default=-1, help="id of the config to run")
+
     args, extras = parser.parse_known_args()
     
     cfg_file = OmegaConf.load(args.cfg_file)

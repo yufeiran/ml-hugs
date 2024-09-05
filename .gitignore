@@ -9,3 +9,5 @@ tensorboard_3d
 screenshots
 *.pth
 *.zip
+cloth_output
+.idea
