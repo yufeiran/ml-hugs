@@ -75,6 +75,9 @@ if __name__=='__main__':
         tailorNet = TailorNet()
         tailorNet.out_path = os.path.join(os.getcwd(),"cloth_mesh_output")
 
+        vert_indeces = tailorNet.get_vert_indices()
+        f = tailorNet.get_f()
+
         # run inference for every frame
         for i in range(poses.shape[0]):
             theta = np.concatenate([smpl_params['global_orient'][i], smpl_params['body_pose'][i]]).astype(np.float32)
