@@ -11,3 +11,5 @@ screenshots
 *.zip
 cloth_output
 .idea
+cloth_mesh_output
+train_process_img

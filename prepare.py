@@ -36,14 +36,14 @@ def mocap_path(scene_name):
 
 if __name__=='__main__':
 
+    seq = 'citron'
 
-    load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/bike/4d_humans/smpl_optimized_aligned_scale.npz"
+    load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
     smpl_params_path = load_smpl_path
     smpl_params = np.load(smpl_params_path)
     smpl_params = {f: smpl_params[f] for f in smpl_params.files}
 
-    seq = 'bike'
 
     motion_path, start_idx, end_idx, skip = mocap_path(seq)
     motions = np.load(motion_path)
@@ -60,21 +60,23 @@ if __name__=='__main__':
 
 
 
-    tailorNet = TailorNet()
-    tailorNet.out_path = os.path.join(os.getcwd(),"cloth_output")
 
-    # run inference for every frame
-    for i in range(poses.shape[0]):
-        theta = np.concatenate([smpl_params['global_orient'][i], smpl_params['body_pose'][i]]).astype(np.float32)
-        beta = smpl_params['betas'][i].astype(np.float32)
-        tailorNet.run_tailornet(theta,beta,"cloth_{:04d}".format(i))
 
     #tailorNet.run_demo()
 
 
-    image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/bike/images"
-    result_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/bike/segmented_images"
+    image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/images"
+    result_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/cloth_segmented_images"
     clothSegemntation = ClothSegemntation(image_dir, result_dir)
     clothSegemntation.infer()
 
+    need_to_run_tailornet = True
+    if need_to_run_tailornet:
+        tailorNet = TailorNet()
+        tailorNet.out_path = os.path.join(os.getcwd(),"cloth_mesh_output")
 
+        # run inference for every frame
+        for i in range(poses.shape[0]):
+            theta = np.concatenate([smpl_params['global_orient'][i], smpl_params['body_pose'][i]]).astype(np.float32)
+            beta = smpl_params['betas'][i].astype(np.float32)
+            tailorNet.run_tailornet(theta,beta,"cloth_{:04d}".format(i))

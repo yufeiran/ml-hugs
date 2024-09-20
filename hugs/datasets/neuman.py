@@ -13,6 +13,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+import torchvision
+import matplotlib.pyplot as plt
+
 
 from .neuman_utils import neuman_helper
 from .neuman_utils.geometry import transformations
@@ -285,6 +288,9 @@ class NeumanDataset(torch.utils.data.Dataset):
         
         self.sam_mask_dir = f'{dataset_path}/4d_humans/sam_segmentations'
         self.msk_lists = sorted(glob.glob(f"{self.sam_mask_dir}/*.png"))
+
+        self.cloth_mask_dir = f'{dataset_path}/cloth_segmented_images'
+        self.cloth_mask_lists = sorted(glob.glob(f"{self.cloth_mask_dir}/*.png"))
         
         _, diag = get_center_and_diag([cap.cam_pose.camera_center_in_world for cap in scene.captures])
     
@@ -342,7 +348,33 @@ class NeumanDataset(torch.utils.data.Dataset):
                 "mask": torch.from_numpy(msk).float(),
                 "bbox": torch.from_numpy(bbox).float(),
             })
-        
+
+            raw_img = img.transpose(1, 2, 0)
+            # load cloth mask
+            cloth_mask = cv2.imread(self.cloth_mask_lists[idx]) / 255
+
+            cloth_img = np.zeros_like(raw_img)
+            cloth_img[cloth_mask == 0] = raw_img[cloth_mask == 0]
+            cloth_mask = cloth_mask.transpose(2, 0, 1)
+
+            # show cloth mask
+            # plt.figure(dpi=72, figsize=(24, 8))
+            # plt.subplot(131)
+            # plt.imshow(raw_img)
+            # plt.title("raw img")
+            # plt.subplot(132)
+            # plt.imshow(cloth_mask)
+            # plt.title("mask img")
+            # plt.subplot(133)
+            # plt.imshow(cloth_img)
+            # plt.title("cloth img")
+            #
+            # plt.show()
+
+            datum.update({
+                "cloth_mask": torch.from_numpy(cloth_mask).float(),
+            })
+
         K = cap.intrinsic_matrix
         width = cap.size[1]
         height = cap.size[0]

@@ -14,6 +14,7 @@ from PIL import Image
 from tqdm import tqdm
 from lpips import LPIPS
 from loguru import logger
+import matplotlib.pyplot as plt
 
 from hugs.datasets.utils import (
     get_rotating_camera,
@@ -312,7 +313,61 @@ class GaussianTrainer():
                     log_gt_img = (gt_img.cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
                     log_img = np.concatenate([log_gt_img, log_pred_img], axis=1)
                     save_images(log_img, f'{self.cfg.logdir}/train/{t_iter:06d}.png')
-            
+
+            if t_iter % 300 == 0:
+                # show pred_img and gt_img by plt in one window
+                pred_img = loss_extras['pred_img']
+                gt_img = loss_extras['gt_img']
+                diff_image = pred_img - gt_img
+                mask = data['mask'].unsqueeze(0)
+                gt_human_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
+
+                cloth_mask = data['cloth_mask']
+                # cloth area in cloth_mask is r = 1, g = 0, b = 0,get the cloth area image
+                cloth_area = torch.zeros_like(gt_img)
+                cloth_area[cloth_mask == 0] = gt_img[cloth_mask == 0]
+                cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
+
+
+
+
+                pred_img = torchvision.transforms.ToPILImage()(pred_img)
+                gt_img = torchvision.transforms.ToPILImage()(gt_img)
+
+                diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
+
+                human_img = render_pkg['human_img']
+                human_img = torchvision.transforms.ToPILImage()(human_img)
+
+                gt_human_image = torchvision.transforms.ToPILImage()(gt_human_image)
+
+
+                # show three image in GUI every 100 iterations
+                plt.figure(dpi=108, figsize=(24, 15))
+                plt.subplot(331)
+                plt.imshow(pred_img)
+                plt.title("Rendered Image")
+                plt.subplot(332)
+                plt.imshow(gt_img)
+                plt.title("Ground Truth")
+                plt.subplot(333)
+                plt.imshow(diff_image_cpu)
+                plt.title("Difference")
+                plt.subplot(334)
+                plt.imshow(human_img)
+                plt.title("Human Image")
+                plt.subplot(335)
+                plt.imshow(gt_human_image)
+                plt.title("Ground Truth Human Image")
+                plt.subplot(338)
+                plt.imshow(cloth_area)
+                plt.title("Cloth Ground Truth")
+
+                plt.savefig(f'./train_process_img/{t_iter:06d}.png')
+                plt.show()
+
+
+
             if t_iter >= self.cfg.scene.opt_start_iter:
                 if (t_iter - self.cfg.scene.opt_start_iter) < self.cfg.scene.densify_until_iter and self.cfg.mode in ['scene', 'human_scene']:
                     render_pkg['scene_viewspace_points'] = render_pkg['viewspace_points']
