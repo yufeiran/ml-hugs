@@ -33,12 +33,13 @@ from .modules.lbs import lbs_extra
 from .modules.smpl_layer import SMPL
 from .modules.triplane import TriPlane
 from .modules.decoders import AppearanceDecoder, DeformationDecoder, GeometryDecoder
+
 from .modules.tailorNet_layer import TailorNet_Layer
 
 SCALE_Z = 1e-5
 
 
-class HUGS_TRIMLP:
+class ClothGS:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -111,8 +112,8 @@ class HUGS_TRIMLP:
         else:
             self.smpl_template = SMPL(SMPL_PATH).to(self.device)
 
-        self.cloth_template = TailorNet_Layer().to(self.device)
-        self.cloth = TailorNet_Layer().to(self.device)
+        #self.cloth_template = TailorNet_Layer().to(self.device)
+        #self.cloth = TailorNet_Layer().to(self.device)
 
 
         self.smpl = SMPL(SMPL_PATH).to(self.device)
@@ -122,6 +123,8 @@ class HUGS_TRIMLP:
             faces=self.smpl_template.faces, process=False
         ).edges_unique
         self.edges = torch.from_numpy(edges).to(self.device).long()
+
+        self.tailorNet = TailorNet_Layer(SMPL_PATH).to(self.device)
 
         self.init_values = {}
         self.get_vitruvian_verts()
@@ -213,7 +216,9 @@ class HUGS_TRIMLP:
 
         xyz_offsets = geometry_out['xyz']
         gs_rot6d = geometry_out['rotations']
-        gs_scales = geometry_out['scales'] * self.scaling_multiplier
+        # FIXME
+        # gs_scales = geometry_out['scales'] * self.scaling_multiplier
+        gs_scales = geometry_out['scales']
 
         gs_opacity = appearance_out['opacity']
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
@@ -467,6 +472,14 @@ class HUGS_TRIMLP:
             return_full_pose=True,
         )
 
+        tailorNet_output = self.tailorNet(
+            betas=betas.unsqueeze(0),
+            body_pose=body_pose.unsqueeze(0),
+            global_orient=global_orient.unsqueeze(0),
+            disable_posedirs=False,
+            return_full_pose=True,
+        )
+
         gt_lbs_weights = None
         if self.use_deformer:
             A_t2pose = smpl_output.A[0]
@@ -587,7 +600,10 @@ class HUGS_TRIMLP:
         vitruvian_pose[5] = -1.0
         smpl_output = self.smpl_template(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
         vitruvian_verts = smpl_output.vertices[0]
-        return vitruvian_verts.detach()
+        tailor_net_output =  self.tailorNet(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
+        cloth_verts = tailor_net_output.tailornet_v
+
+        return vitruvian_verts.detach(), cloth_verts.detach().cuda()
 
     def train(self):
         pass
@@ -596,7 +612,8 @@ class HUGS_TRIMLP:
         pass
 
     def initialize(self):
-        t_pose_verts = self.get_vitruvian_verts_template()
+        t_pose_verts,cloth_t_pose_verts = self.get_vitruvian_verts_template()
+        cloth_t_pose_verts = cloth_t_pose_verts.float()
 
         self.scaling_multiplier = torch.ones((t_pose_verts.shape[0], 1), device="cuda")
 
@@ -652,7 +669,8 @@ class HUGS_TRIMLP:
         lbs_weights = self.smpl_template.lbs_weights.detach().clone()
 
         self.n_gs = t_pose_verts.shape[0]
-        self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))
+        #self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))
+        self._xyz = nn.Parameter(cloth_t_pose_verts.requires_grad_(True))
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         return {

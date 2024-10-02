@@ -26,6 +26,9 @@ def render_human_scene(
     scaling_modifier=1.0, 
     render_mode='human_scene',
     render_human_separate=False,
+    cloth_gs_out =None,
+    render_cloth_separate=True,
+    cloth_bg_color=None,
 ):
 
     feats = None
@@ -80,6 +83,22 @@ def render_human_scene(
         render_pkg['human_img'] = render_human_pkg['render']
         render_pkg['human_visibility_filter'] = render_human_pkg['visibility_filter']
         render_pkg['human_radii'] = render_human_pkg['radii']
+
+    if cloth_gs_out != None and render_cloth_separate and render_mode == 'human_scene':
+        render_cloth_pkg = render(
+            means3D=cloth_gs_out['xyz'],
+            feats=cloth_gs_out['shs'],
+            opacity=cloth_gs_out['opacity'],
+            scales=cloth_gs_out['scales'],
+            rotations=cloth_gs_out['rotq'],
+            data=data,
+            scaling_modifier=scaling_modifier,
+            bg_color=cloth_bg_color if cloth_bg_color is not None else bg_color,
+            active_sh_degree=cloth_gs_out['active_sh_degree'],
+        )
+        render_pkg['cloth_img'] = render_cloth_pkg['render']
+        render_pkg['cloth_visibility_filter'] = render_cloth_pkg['visibility_filter']
+        render_pkg['cloth_radii'] = render_cloth_pkg['radii']
         
     if render_mode == 'human':
         render_pkg['human_visibility_filter'] = render_pkg['visibility_filter']

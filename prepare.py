@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+from tqdm import tqdm
 
 sys.path.append('.')
 
@@ -36,7 +37,7 @@ def mocap_path(scene_name):
 
 if __name__=='__main__':
 
-    seq = 'citron'
+    seq = 'bike'
 
     load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
@@ -67,8 +68,11 @@ if __name__=='__main__':
 
     image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/images"
     result_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/cloth_segmented_images"
-    clothSegemntation = ClothSegemntation(image_dir, result_dir)
-    clothSegemntation.infer()
+
+    need_to_run_cloth_segmentation = False
+    if need_to_run_cloth_segmentation:
+        clothSegemntation = ClothSegemntation(image_dir, result_dir)
+        clothSegemntation.infer()
 
     need_to_run_tailornet = True
     if need_to_run_tailornet:
@@ -79,7 +83,16 @@ if __name__=='__main__':
         f = tailorNet.get_f()
 
         # run inference for every frame
+        pbar = tqdm(total=poses.shape[0])
         for i in range(poses.shape[0]):
+            pbar.update(1)
             theta = np.concatenate([smpl_params['global_orient'][i], smpl_params['body_pose'][i]]).astype(np.float32)
             beta = smpl_params['betas'][i].astype(np.float32)
             tailorNet.run_tailornet(theta,beta,"cloth_{:04d}".format(i))
+
+        zero_theta = np.zeros(poses.shape[1])
+        # let zero_theta[0] = smpl_params['global_orient'][i]
+        zero_theta[0:3] = smpl_params['global_orient'][0]
+
+
+        tailorNet.run_tailornet(zero_theta,smpl_params['betas'][0],"canon_cloth")

@@ -21,6 +21,7 @@ class HumanSceneLoss(nn.Module):
         l_lpips_w=0.0,
         l_lbs_w=0.0,
         l_humansep_w=0.0,
+        l_clothsep_w=0.0,
         num_patches=4,
         patch_size=32,
         use_patches=True,
@@ -33,6 +34,7 @@ class HumanSceneLoss(nn.Module):
         self.l_lpips_w = l_lpips_w
         self.l_lbs_w = l_lbs_w
         self.l_humansep_w = l_humansep_w
+        self.l_clothsep_w = l_clothsep_w
         self.use_patches = use_patches
         
         self.bg_color = bg_color
@@ -52,6 +54,9 @@ class HumanSceneLoss(nn.Module):
         human_gs_init_values=None,
         bg_color=None,
         human_bg_color=None,
+        cloth_gs_out=None,
+        cloth_gs_init_values=None,
+        cloth_bg_color=None,
     ):
         loss_dict = {}
         extras_dict = {}
@@ -61,11 +66,16 @@ class HumanSceneLoss(nn.Module):
             
         if human_bg_color is None:
             human_bg_color = self.bg_color
+
+        if cloth_bg_color is None:
+            cloth_bg_color = self.bg_color
             
         gt_image = data['rgb']
         mask = data['mask'].unsqueeze(0)
         
         pred_img = render_pkg['render']
+
+        cloth_mask = data['cloth_mask'].unsqueeze(0)
         
         if render_mode == "human":
             gt_image = gt_image * mask + human_bg_color[:, None, None] * (1. - mask)
@@ -80,6 +90,11 @@ class HumanSceneLoss(nn.Module):
             pred_img = pred_img * mask
             
             extras_dict['gt_img'] = gt_image
+        elif render_mode == "cloth":
+            gt_image = gt_image * cloth_mask + cloth_bg_color[:, None, None] * (1. - cloth_mask)
+            extras_dict['gt_img'] = gt_image
+            extras_dict['pred_img'] = pred_img
+
         else:
             extras_dict['gt_img'] = gt_image
             extras_dict['pred_img'] = pred_img
@@ -143,6 +158,23 @@ class HumanSceneLoss(nn.Module):
             loss_lpips_human = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
             loss_dict['lpips_patch_human'] = self.l_lpips_w * loss_lpips_human * self.l_humansep_w
 
+        if self.l_clothsep_w > 0.0 and render_mode == "human_scene":
+            pred_cloth_img = render_pkg['cloth_img']
+            gt_cloth_image = gt_image * cloth_mask + cloth_bg_color[:, None, None] * (1 - cloth_mask)
+
+            Ll1_cloth = l1_loss(pred_cloth_img, gt_cloth_image, cloth_mask)
+            loss_dict['l1_cloth'] = self.l_l1_w * Ll1_cloth * self.l_clothsep_w
+
+            loss_ssim_cloth = 1.0 - ssim(pred_cloth_img, gt_cloth_image)
+            loss_ssim_cloth = loss_ssim_cloth * (cloth_mask.sum() / (pred_cloth_img.shape[-1] * pred_cloth_img.shape[-2]))
+            loss_dict['ssim_cloth'] = self.l_ssim_w * loss_ssim_cloth * self.l_clothsep_w
+
+            bg_color_lpips = torch.rand_like(pred_cloth_img)
+            image_bg = pred_cloth_img * cloth_mask + bg_color_lpips * (1 - cloth_mask)
+            gt_image_bg = gt_cloth_image * cloth_mask + bg_color_lpips * (1 - cloth_mask)
+            _, pred_patches, gt_patches = self.patch_sampler.sample(cloth_mask, image_bg, gt_image_bg)
+            loss_lpips_cloth = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
+            loss_dict['lpips_patch_cloth'] = self.l_lpips_w * loss_lpips_cloth * self.l_clothsep_w
 
         if self.l_lbs_w > 0.0 and human_gs_out['lbs_weights'] is not None and not render_mode == "scene":
             if 'gt_lbs_weights' in human_gs_out.keys():

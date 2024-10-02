@@ -20,7 +20,6 @@ from hugs.utils.config import get_cfg_items
 from hugs.cfg.config import cfg as default_cfg
 from hugs.utils.general import safe_state, find_cfg_diff
 
-from segmentation import ClothSegemntation
 
 
 def get_logger(cfg):

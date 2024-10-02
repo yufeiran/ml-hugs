@@ -351,11 +351,14 @@ class NeumanDataset(torch.utils.data.Dataset):
 
             raw_img = img.transpose(1, 2, 0)
             # load cloth mask
-            cloth_mask = cv2.imread(self.cloth_mask_lists[idx]) / 255
+            cloth_mask = cv2.imread(self.cloth_mask_lists[idx],cv2.IMREAD_GRAYSCALE) / 255
+            # invert the mask
+            cloth_mask = 1 - cloth_mask
+            cloth_mask = cloth_mask.astype(np.float32)
 
-            cloth_img = np.zeros_like(raw_img)
-            cloth_img[cloth_mask == 0] = raw_img[cloth_mask == 0]
-            cloth_mask = cloth_mask.transpose(2, 0, 1)
+            # cloth_img = np.zeros_like(raw_img)
+            # cloth_img[cloth_mask == 0] = raw_img[cloth_mask == 0]
+            # cloth_mask = cloth_mask.transpose(2, 0, 1)
 
             # show cloth mask
             # plt.figure(dpi=72, figsize=(24, 8))
