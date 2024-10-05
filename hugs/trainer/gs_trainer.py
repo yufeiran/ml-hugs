@@ -117,10 +117,10 @@ class GaussianTrainer():
                 self.human_gs.create_betas(init_betas[0], cfg.human.optim_betas)
                 if not cfg.eval:
                     self.human_gs.initialize()
-                    self.human_gs = optimize_init(self.human_gs, num_steps=100)
+                    self.human_gs = optimize_init(self.human_gs, num_steps=7000)
             self.cloth_gs = ClothGS(
                     sh_degree=cfg.human.sh_degree,
-                    n_subdivision=0,
+                    n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -133,7 +133,7 @@ class GaussianTrainer():
                     betas=init_betas[0])
             if not cfg.eval:
                 self.cloth_gs.initialize()
-                self.cloth_gs = optimize_init(self.cloth_gs, num_steps=700)
+                self.cloth_gs = optimize_init(self.cloth_gs, num_steps=7000)
         
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
@@ -416,24 +416,31 @@ class GaussianTrainer():
 
                 plt.subplot(331)
                 plt.imshow(pred_img)
+                plt.axis('off')
                 plt.title("Rendered Image")
                 plt.subplot(332)
                 plt.imshow(gt_img)
+                plt.axis('off')
                 plt.title("Ground Truth")
                 plt.subplot(333)
                 plt.imshow(diff_image_cpu)
+                plt.axis('off')
                 plt.title("Difference")
                 plt.subplot(334)
                 plt.imshow(human_img)
+                plt.axis('off')
                 plt.title("Human Image")
                 plt.subplot(335)
                 plt.imshow(gt_human_image)
+                plt.axis('off')
                 plt.title("Human Image Ground Truth")
                 plt.subplot(337)
                 plt.imshow(cloth_img)
+                plt.axis('off')
                 plt.title("Cloth Image")
                 plt.subplot(338)
                 plt.imshow(gt_cloth_img)
+                plt.axis('off')
                 plt.title("Cloth Ground Truth")
 
                 plt.savefig(f'./train_process_img/{t_iter:06d}.png')

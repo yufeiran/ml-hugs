@@ -669,8 +669,8 @@ class ClothGS:
         lbs_weights = self.smpl_template.lbs_weights.detach().clone()
 
         self.n_gs = t_pose_verts.shape[0]
-        #self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))
-        self._xyz = nn.Parameter(cloth_t_pose_verts.requires_grad_(True))
+        self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))
+        #self._xyz = nn.Parameter(cloth_t_pose_verts.requires_grad_(True))
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         return {
