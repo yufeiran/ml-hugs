@@ -53,6 +53,13 @@ def render_human_scene(
         scales = scene_gs_out['scales']
         rotations = scene_gs_out['rotq']
         active_sh_degree = scene_gs_out['active_sh_degree']
+    elif render_mode == 'cloth':
+        feats = cloth_gs_out['shs']
+        means3D = cloth_gs_out['xyz']
+        opacity = cloth_gs_out['opacity']
+        scales = cloth_gs_out['scales']
+        rotations = cloth_gs_out['rotq']
+        active_sh_degree = cloth_gs_out['active_sh_degree']
     else:
         raise ValueError(f'Unknown render mode: {render_mode}')
     
@@ -103,6 +110,9 @@ def render_human_scene(
     if render_mode == 'human':
         render_pkg['human_visibility_filter'] = render_pkg['visibility_filter']
         render_pkg['human_radii'] = render_pkg['radii']
+    elif render_mode == 'cloth':
+        render_pkg['cloth_visibility_filter'] = render_pkg['visibility_filter']
+        render_pkg['cloth_radii'] = render_pkg['radii']
     elif render_mode == 'human_scene':
         human_n_gs = human_gs_out['xyz'].shape[0]
         scene_n_gs = scene_gs_out['xyz'].shape[0]

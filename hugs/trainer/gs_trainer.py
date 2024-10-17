@@ -15,6 +15,7 @@ from tqdm import tqdm
 from lpips import LPIPS
 from loguru import logger
 import matplotlib.pyplot as plt
+import torch.nn as nn
 
 from hugs.datasets.utils import (
     get_rotating_camera,
@@ -384,7 +385,16 @@ class GaussianTrainer():
                 # show pred_img and gt_img by plt in one window
                 pred_img = loss_extras['pred_img']
                 gt_img = loss_extras['gt_img']
-                diff_image = pred_img - gt_img
+
+                # 可视化差异
+                diff_image = torch.abs(pred_img - gt_img)
+                diff_image = torch.mean(diff_image, dim=0)
+                diff_image = diff_image.unsqueeze(0)
+                # 变回rgb通道
+                diff_image = diff_image.repeat(3, 1, 1)
+
+
+
                 mask = data['mask'].unsqueeze(0)
                 gt_human_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
 
@@ -394,21 +404,34 @@ class GaussianTrainer():
                 # cloth_area[cloth_mask == 0] = gt_img[cloth_mask == 0]
                 # cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
                 gt_cloth_img = gt_img * cloth_mask + cloth_bg_color[:, None, None] * (1. - cloth_mask)
-                gt_cloth_img = torchvision.transforms.ToPILImage()(gt_cloth_img)
 
                 cloth_img = render_pkg['cloth_img']
-                cloth_img = torchvision.transforms.ToPILImage()(cloth_img)
+
+                cloth_diff = torch.abs(cloth_img - gt_cloth_img)
+                cloth_mse_loss = torch.mean(cloth_diff, dim=0)
+                cloth_diff_image = cloth_mse_loss.unsqueeze(0)
+                cloth_diff_image = cloth_diff_image.repeat(3, 1, 1)
+
+
+                human_img = render_pkg['human_img']
+
+                human_diff = torch.abs(human_img - gt_human_image)
+                human_mse_loss = torch.mean(human_diff, dim=0)
+                human_diff_image = human_mse_loss.unsqueeze(0)
+                human_diff_image = human_diff_image.repeat(3, 1, 1)
 
                 pred_img = torchvision.transforms.ToPILImage()(pred_img)
                 gt_img = torchvision.transforms.ToPILImage()(gt_img)
 
-                diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
+                gt_cloth_img = torchvision.transforms.ToPILImage()(gt_cloth_img)
+                cloth_img = torchvision.transforms.ToPILImage()(cloth_img)
 
-                human_img = render_pkg['human_img']
                 human_img = torchvision.transforms.ToPILImage()(human_img)
-
                 gt_human_image = torchvision.transforms.ToPILImage()(gt_human_image)
 
+                diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
+                cloth_diff_image_cpu = torchvision.transforms.ToPILImage()(cloth_diff_image)
+                human_diff_image_cpu = torchvision.transforms.ToPILImage()(human_diff_image)
 
                 # show three image in GUI every 100 iterations
 
@@ -426,6 +449,7 @@ class GaussianTrainer():
                 plt.imshow(diff_image_cpu)
                 plt.axis('off')
                 plt.title("Difference")
+
                 plt.subplot(334)
                 plt.imshow(human_img)
                 plt.axis('off')
@@ -434,6 +458,11 @@ class GaussianTrainer():
                 plt.imshow(gt_human_image)
                 plt.axis('off')
                 plt.title("Human Image Ground Truth")
+                plt.subplot(336)
+                plt.imshow(human_diff_image_cpu)
+                plt.axis('off')
+                plt.title("Human Difference")
+
                 plt.subplot(337)
                 plt.imshow(cloth_img)
                 plt.axis('off')
@@ -442,6 +471,10 @@ class GaussianTrainer():
                 plt.imshow(gt_cloth_img)
                 plt.axis('off')
                 plt.title("Cloth Ground Truth")
+                plt.subplot(339)
+                plt.imshow(cloth_diff_image_cpu)
+                plt.axis('off')
+                plt.title("Cloth Difference")
 
                 plt.savefig(f'./train_process_img/{t_iter:06d}.png')
                 plt.show()
@@ -498,15 +531,17 @@ class GaussianTrainer():
             if t_iter % self.cfg.train.val_interval == 0 and t_iter > 0:
                 self.validate(t_iter)
             
-            if t_iter == 0:
+            if t_iter == 0 or t_iter % 1000 == 0:
                 if self.scene_gs:
                     self.scene_gs.save_ply(f'{self.cfg.logdir}/meshes/scene_{t_iter:06d}_splat.ply')
                 if self.human_gs:
                     save_ply(human_gs_out, f'{self.cfg.logdir}/meshes/human_{t_iter:06d}_splat.ply')
+                if self.cloth_gs:
+                    save_ply(cloth_gs_out, f'{self.cfg.logdir}/meshes/cloth_{t_iter:06d}_splat.ply')
 
                 if self.cfg.mode in ['human', 'human_scene']:
                     self.render_canonical(t_iter, nframes=self.cfg.human.canon_nframes)
-                
+
             if t_iter % self.cfg.train.anim_interval == 0 and t_iter > 0 and self.cfg.train.anim_interval > 0:
                 if self.human_gs:
                     save_ply(human_gs_out, f'{self.cfg.logdir}/meshes/human_{t_iter:06d}_splat.ply')
@@ -733,6 +768,7 @@ class GaussianTrainer():
             self.human_gs.eval()
         
         os.makedirs(f'{self.cfg.logdir}/canon/', exist_ok=True)
+        os.makedirs(f'{self.cfg.logdir}/cloth_canon/', exist_ok=True)
         
         camera_params = get_rotating_camera(
             dist=5.0, img_size=256 if is_train_progress else 512, 
@@ -749,17 +785,29 @@ class GaussianTrainer():
         
         if is_train_progress:
             progress_imgs = []
+            cloth_progress_imgs = []
         
         pbar = range(nframes) if is_train_progress else tqdm(range(nframes), desc="Canonical:")
         
         for idx in pbar:
-            human_gs_out, scene_gs_out = None, None
+            human_gs_out,cloth_gs_out, scene_gs_out = None, None, None
             
             cam_p = camera_params[idx]
             data = dict(static_smpl_params, **cam_p)
 
             if self.human_gs:
                 human_gs_out = self.human_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
+                    smpl_scale=data['smpl_scale'],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=None,
+                )
+            if self.cloth_gs:
+                cloth_gs_out = self.cloth_gs.forward(
                     global_orient=data['global_orient'],
                     body_pose=data['body_pose'],
                     betas=data['betas'],
@@ -780,10 +828,24 @@ class GaussianTrainer():
                     render_mode='human',
                     scaling_modifier=scale_mod,
                 )
-                
+
                 image = render_pkg["render"]
-                
+
                 progress_imgs.append(image)
+
+                cloth_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    cloth_gs_out=cloth_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='cloth',
+                    scaling_modifier=scale_mod,
+                )
+
+                cloth_imgae = cloth_render_pkg["render"]
+
+                cloth_progress_imgs.append(cloth_imgae)
                 
                 render_pkg = render_human_scene(
                     data=data, 
@@ -792,10 +854,23 @@ class GaussianTrainer():
                     bg_color=self.bg_color,
                     render_mode='human',
                 )
-                
+
                 image = render_pkg["render"]
                 
                 progress_imgs.append(image)
+
+                cloth_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    cloth_gs_out=cloth_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='cloth',
+                )
+
+                cloth_imgae = cloth_render_pkg["render"]
+
+                cloth_progress_imgs.append(cloth_imgae)
                 
             else:
                 render_pkg = render_human_scene(
@@ -809,18 +884,41 @@ class GaussianTrainer():
                 image = render_pkg["render"]
                 
                 torchvision.utils.save_image(image, f'{self.cfg.logdir}/canon/{idx:05d}.png')
+
+                cloth_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    cloth_gs_out=cloth_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='cloth',
+                )
+
+                cloth_image = cloth_render_pkg["render"]
+
+                torchvision.utils.save_image(cloth_image, f'{self.cfg.logdir}/cloth_canon/{idx:05d}.png')
         
         if is_train_progress:
             os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
             log_img = torchvision.utils.make_grid(progress_imgs, nrow=4, pad_value=0)
             save_image(log_img, f'{self.cfg.logdir}/train_progress/{iter:06d}.png', 
                        text_labels=f"{iter:06d}, n_gs={self.human_gs.n_gs}")
+
+            os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
+            cloth_log_img = torchvision.utils.make_grid(cloth_progress_imgs, nrow=4, pad_value=0)
+            save_image(cloth_log_img, f'{self.cfg.logdir}/train_progress/cloth{iter:06d}.png',
+                       text_labels=f"{iter:06d}, n_gs={self.cloth_gs.n_gs}")
             return
         
         video_fname = f'{self.cfg.logdir}/canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
         create_video(f'{self.cfg.logdir}/canon/', video_fname, fps=10)
         shutil.rmtree(f'{self.cfg.logdir}/canon/')
         os.makedirs(f'{self.cfg.logdir}/canon/')
+
+        video_fname = f'{self.cfg.logdir}/cloth_canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
+        create_video(f'{self.cfg.logdir}/cloth_canon/', video_fname, fps=10)
+        shutil.rmtree(f'{self.cfg.logdir}/cloth_canon/')
+        os.makedirs(f'{self.cfg.logdir}/cloth_canon/')
         
     def render_poses(self, camera_params, smpl_params, pose_type='a_pose', bg_color='white'):
     

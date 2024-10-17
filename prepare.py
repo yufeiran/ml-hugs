@@ -37,7 +37,7 @@ def mocap_path(scene_name):
 
 if __name__=='__main__':
 
-    seq = 'bike'
+    seq = 'citron'
 
     load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
@@ -67,11 +67,12 @@ if __name__=='__main__':
 
 
     image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/images"
+    human_segmented_image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/segmentations"
     result_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/cloth_segmented_images"
 
-    need_to_run_cloth_segmentation = False
+    need_to_run_cloth_segmentation = True
     if need_to_run_cloth_segmentation:
-        clothSegemntation = ClothSegemntation(image_dir, result_dir)
+        clothSegemntation = ClothSegemntation(image_dir, result_dir,human_segmented_image_dir)
         clothSegemntation.infer()
 
     need_to_run_tailornet = True

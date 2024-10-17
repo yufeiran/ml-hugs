@@ -186,6 +186,17 @@ class HumanSceneLoss(nn.Module):
                     human_gs_out['lbs_weights'], 
                     human_gs_init_values['lbs_weights']).mean()
             loss_dict['lbs'] = self.l_lbs_w * loss_lbs
+
+        if self.l_lbs_w > 0.0 and cloth_gs_out is not None and cloth_gs_out['lbs_weights'] is not None and not render_mode == "scene":
+            if 'gt_lbs_weights' in cloth_gs_out.keys():
+                loss_lbs = F.mse_loss(
+                    cloth_gs_out['lbs_weights'],
+                    cloth_gs_out['gt_lbs_weights'].detach()).mean()
+            else:
+                loss_lbs = F.mse_loss(
+                    cloth_gs_out['lbs_weights'],
+                    cloth_gs_init_values['lbs_weights']).mean()
+            loss_dict['lbs_cloth'] = self.l_lbs_w * loss_lbs
         
         loss = 0.0
         for k, v in loss_dict.items():
