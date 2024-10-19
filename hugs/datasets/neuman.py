@@ -289,8 +289,15 @@ class NeumanDataset(torch.utils.data.Dataset):
         self.sam_mask_dir = f'{dataset_path}/4d_humans/sam_segmentations'
         self.msk_lists = sorted(glob.glob(f"{self.sam_mask_dir}/*.png"))
 
+
         self.cloth_mask_dir = f'{dataset_path}/cloth_segmented_images'
         self.cloth_mask_lists = sorted(glob.glob(f"{self.cloth_mask_dir}/*.png"))
+        self.upperbody_img_path = self.cloth_mask_dir+f'/upperbody'
+        self.lowerbody_img_path = self.cloth_mask_dir+f'/lowerbody'
+        self.humanbody_img_path = self.cloth_mask_dir+f'/humanbody'
+        self.upperbody_mask_lists = sorted(glob.glob(f"{self.upperbody_img_path}/*.png"))
+        self.lowerbody_mask_lists = sorted(glob.glob(f"{self.lowerbody_img_path}/*.png"))
+        self.humanbody_mask_lists = sorted(glob.glob(f"{self.humanbody_img_path}/*.png"))
         
         _, diag = get_center_and_diag([cap.cam_pose.camera_center_in_world for cap in scene.captures])
     
@@ -351,31 +358,23 @@ class NeumanDataset(torch.utils.data.Dataset):
 
             raw_img = img.transpose(1, 2, 0)
             # load cloth mask
-            cloth_mask = cv2.imread(self.cloth_mask_lists[idx],cv2.IMREAD_GRAYSCALE) / 255
+            upperbody_mask = cv2.imread(self.upperbody_mask_lists[idx],cv2.IMREAD_GRAYSCALE) / 255
+            lowerbody_mask = cv2.imread(self.lowerbody_mask_lists[idx],cv2.IMREAD_GRAYSCALE) / 255
+            humanbody_mask = cv2.imread(self.humanbody_mask_lists[idx],cv2.IMREAD_GRAYSCALE) / 255
+
             # invert the mask
-            cloth_mask = 1 - cloth_mask
-            cloth_mask = cloth_mask.astype(np.float32)
+            upperbody_mask = 1 - upperbody_mask
+            lowerbody_mask = 1 - lowerbody_mask
+            humanbody_mask = 1 - humanbody_mask
 
-            # cloth_img = np.zeros_like(raw_img)
-            # cloth_img[cloth_mask == 0] = raw_img[cloth_mask == 0]
-            # cloth_mask = cloth_mask.transpose(2, 0, 1)
-
-            # show cloth mask
-            # plt.figure(dpi=72, figsize=(24, 8))
-            # plt.subplot(131)
-            # plt.imshow(raw_img)
-            # plt.title("raw img")
-            # plt.subplot(132)
-            # plt.imshow(cloth_mask)
-            # plt.title("mask img")
-            # plt.subplot(133)
-            # plt.imshow(cloth_img)
-            # plt.title("cloth img")
-            #
-            # plt.show()
+            upperbody_mask = upperbody_mask.astype(np.float32)
+            lowerbody_mask = lowerbody_mask.astype(np.float32)
+            humanbody_mask = humanbody_mask.astype(np.float32)
 
             datum.update({
-                "cloth_mask": torch.from_numpy(cloth_mask).float(),
+                "upperbody_mask": torch.from_numpy(upperbody_mask).float(),
+                "lowerbody_mask": torch.from_numpy(lowerbody_mask).float(),
+                "humanbody_mask": torch.from_numpy(humanbody_mask).float(),
             })
 
         K = cap.intrinsic_matrix

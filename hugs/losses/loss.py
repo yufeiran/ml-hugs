@@ -75,7 +75,7 @@ class HumanSceneLoss(nn.Module):
         
         pred_img = render_pkg['render']
 
-        cloth_mask = data['cloth_mask'].unsqueeze(0)
+        cloth_mask = data['upperbody_mask'].unsqueeze(0)
         
         if render_mode == "human":
             gt_image = gt_image * mask + human_bg_color[:, None, None] * (1. - mask)
@@ -159,7 +159,7 @@ class HumanSceneLoss(nn.Module):
             loss_dict['lpips_patch_human'] = self.l_lpips_w * loss_lpips_human * self.l_humansep_w
 
         if self.l_clothsep_w > 0.0 and render_mode == "human_scene":
-            pred_cloth_img = render_pkg['cloth_img']
+            pred_cloth_img = render_pkg['upperbody_img']
             gt_cloth_image = gt_image * cloth_mask + cloth_bg_color[:, None, None] * (1 - cloth_mask)
 
             Ll1_cloth = l1_loss(pred_cloth_img, gt_cloth_image, cloth_mask)

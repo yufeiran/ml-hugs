@@ -118,7 +118,7 @@ class GaussianTrainer():
                 self.human_gs.create_betas(init_betas[0], cfg.human.optim_betas)
                 if not cfg.eval:
                     self.human_gs.initialize()
-                    self.human_gs = optimize_init(self.human_gs, num_steps=7000)
+                    self.human_gs = optimize_init(self.human_gs, num_steps=1000)
             self.cloth_gs = ClothGS(
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
@@ -134,7 +134,7 @@ class GaussianTrainer():
                     betas=init_betas[0])
             if not cfg.eval:
                 self.cloth_gs.initialize()
-                self.cloth_gs = optimize_init(self.cloth_gs, num_steps=7000)
+                self.cloth_gs = optimize_init(self.cloth_gs, num_steps=1000)
         
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
@@ -398,14 +398,14 @@ class GaussianTrainer():
                 mask = data['mask'].unsqueeze(0)
                 gt_human_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
 
-                cloth_mask = data['cloth_mask']
+                cloth_mask = data['upperbody_mask']
                 # cloth area in cloth_mask is r = 1, g = 0, b = 0,get the cloth area image
                 # cloth_area = torch.zeros_like(gt_img)
                 # cloth_area[cloth_mask == 0] = gt_img[cloth_mask == 0]
                 # cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
                 gt_cloth_img = gt_img * cloth_mask + cloth_bg_color[:, None, None] * (1. - cloth_mask)
 
-                cloth_img = render_pkg['cloth_img']
+                cloth_img = render_pkg['upperbody_img']
 
                 cloth_diff = torch.abs(cloth_img - gt_cloth_img)
                 cloth_mse_loss = torch.mean(cloth_diff, dim=0)

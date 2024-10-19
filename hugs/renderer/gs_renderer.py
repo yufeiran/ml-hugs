@@ -103,7 +103,7 @@ def render_human_scene(
             bg_color=cloth_bg_color if cloth_bg_color is not None else bg_color,
             active_sh_degree=cloth_gs_out['active_sh_degree'],
         )
-        render_pkg['cloth_img'] = render_cloth_pkg['render']
+        render_pkg['upperbody_img'] = render_cloth_pkg['render']
         render_pkg['cloth_visibility_filter'] = render_cloth_pkg['visibility_filter']
         render_pkg['cloth_radii'] = render_cloth_pkg['radii']
         
