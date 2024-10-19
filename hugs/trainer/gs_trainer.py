@@ -119,7 +119,7 @@ class GaussianTrainer():
                 if not cfg.eval:
                     self.human_gs.initialize()
                     self.human_gs = optimize_init(self.human_gs, num_steps=1000)
-            self.cloth_gs = ClothGS(
+            self.upperbody_gs = ClothGS(
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,
@@ -133,8 +133,25 @@ class GaussianTrainer():
                     triplane_res=cfg.human.triplane_res,
                     betas=init_betas[0])
             if not cfg.eval:
-                self.cloth_gs.initialize()
-                self.cloth_gs = optimize_init(self.cloth_gs, num_steps=1000)
+                self.upperbody_gs.initialize()
+                self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=1000)
+
+            self.lowerbody_gs = ClothGS(
+                    sh_degree=cfg.human.sh_degree,
+                    n_subdivision=cfg.human.n_subdivision,
+                    use_surface=cfg.human.use_surface,
+                    init_2d=cfg.human.init_2d,
+                    rotate_sh=cfg.human.rotate_sh,
+                    isotropic=cfg.human.isotropic,
+                    init_scale_multiplier=cfg.human.init_scale_multiplier,
+                    n_features=32,
+                    use_deformer=cfg.human.use_deformer,
+                    disable_posedirs=cfg.human.disable_posedirs,
+                    triplane_res=cfg.human.triplane_res,
+                    betas=init_betas[0])
+            if not cfg.eval:
+                self.lowerbody_gs.initialize()
+                self.lowerbody_gs = optimize_init(self.lowerbody_gs, num_steps=1000)
         
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
@@ -172,18 +189,18 @@ class GaussianTrainer():
                 
                 self.human_gs.setup_optimizer(cfg=cfg.human.lr)
 
-        if self.cloth_gs:
-            self.cloth_gs.setup_optimizer(cfg=cfg.human.lr)
-            logger.info(self.cloth_gs)
+        if self.upperbody_gs:
+            self.upperbody_gs.setup_optimizer(cfg=cfg.human.lr)
+            logger.info(self.upperbody_gs)
             if cfg.human.ckpt:
                 # load_human_ckpt(self.human_gs, cfg.human.ckpt)
-                self.cloth_gs.load_state_dict(torch.load(cfg.human.ckpt))
+                self.upperbody_gs.load_state_dict(torch.load(cfg.human.ckpt))
                 logger.info(f'Loaded human model from {cfg.human.ckpt}')
             else:
                 ckpt_files = sorted(glob.glob(f'{cfg.logdir_ckpt}/*human*.pth'))
                 if len(ckpt_files) > 0:
                     ckpt = torch.load(ckpt_files[-1])
-                    self.cloth_gs.load_state_dict(ckpt)
+                    self.upperbody_gs.load_state_dict(ckpt)
                     logger.info(f'Loaded human model from {ckpt_files[-1]}')
 
             if not cfg.eval:
@@ -194,13 +211,43 @@ class GaussianTrainer():
                 init_eps_offsets = torch.zeros((len(self.train_dataset), self.human_gs.n_gs, 3),
                                             dtype=torch.float32, device="cuda")
 
-                self.cloth_gs.create_betas(init_betas[0], cfg.human.optim_betas)
+                self.upperbody_gs.create_betas(init_betas[0], cfg.human.optim_betas)
 
-                self.cloth_gs.create_body_pose(init_smpl_body_pose, cfg.human.optim_pose)
-                self.cloth_gs.create_global_orient(init_smpl_global_orient, cfg.human.optim_pose)
-                self.cloth_gs.create_transl(init_smpl_trans, cfg.human.optim_trans)
+                self.upperbody_gs.create_body_pose(init_smpl_body_pose, cfg.human.optim_pose)
+                self.upperbody_gs.create_global_orient(init_smpl_global_orient, cfg.human.optim_pose)
+                self.upperbody_gs.create_transl(init_smpl_trans, cfg.human.optim_trans)
 
-                self.cloth_gs.setup_optimizer(cfg=cfg.human.lr)
+                self.upperbody_gs.setup_optimizer(cfg=cfg.human.lr)
+
+        if self.lowerbody_gs:
+            self.lowerbody_gs.setup_optimizer(cfg=cfg.human.lr)
+            logger.info(self.lowerbody_gs)
+            if cfg.human.ckpt:
+                # load_human_ckpt(self.human_gs, cfg.human.ckpt)
+                self.lowerbody_gs.load_state_dict(torch.load(cfg.human.ckpt))
+                logger.info(f'Loaded human model from {cfg.human.ckpt}')
+            else:
+                ckpt_files = sorted(glob.glob(f'{cfg.logdir_ckpt}/*human*.pth'))
+                if len(ckpt_files) > 0:
+                    ckpt = torch.load(ckpt_files[-1])
+                    self.lowerbody_gs.load_state_dict(ckpt)
+                    logger.info(f'Loaded human model from {ckpt_files[-1]}')
+
+            if not cfg.eval:
+                init_smpl_global_orient = torch.stack([x['global_orient'] for x in self.train_dataset.cached_data])
+                init_smpl_body_pose = torch.stack([x['body_pose'] for x in self.train_dataset.cached_data])
+                init_smpl_trans = torch.stack([x['transl'] for x in self.train_dataset.cached_data], dim=0)
+                init_betas = torch.stack([x['betas'] for x in self.train_dataset.cached_data], dim=0)
+                init_eps_offsets = torch.zeros((len(self.train_dataset), self.human_gs.n_gs, 3),
+                                            dtype=torch.float32, device="cuda")
+
+                self.lowerbody_gs.create_betas(init_betas[0], cfg.human.optim_betas)
+
+                self.lowerbody_gs.create_body_pose(init_smpl_body_pose, cfg.human.optim_pose)
+                self.lowerbody_gs.create_global_orient(init_smpl_global_orient, cfg.human.optim_pose)
+                self.lowerbody_gs.create_transl(init_smpl_trans, cfg.human.optim_trans)
+
+                self.lowerbody_gs.setup_optimizer(cfg=cfg.human.lr)
                     
         if self.scene_gs:
             logger.info(self.scene_gs)
@@ -288,7 +335,7 @@ class GaussianTrainer():
             rnd_idx = next(rand_idx_iter)
             data = self.train_dataset[rnd_idx]
             
-            human_gs_out, cloth_gs_out, scene_gs_out = None, None, None
+            human_gs_out, upperbody_gs_out,lowerbody_gs_out, scene_gs_out = None, None, None, None
             
             if self.human_gs:
                 human_gs_out = self.human_gs.forward(
@@ -297,8 +344,15 @@ class GaussianTrainer():
                     is_train=True,
                     ext_tfs=None,
                 )
-            if self.cloth_gs:
-                cloth_gs_out = self.cloth_gs.forward(
+            if self.upperbody_gs:
+                upperbody_gs_out = self.upperbody_gs.forward(
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=rnd_idx,
+                    is_train=True,
+                    ext_tfs=None,
+                )
+            if self.lowerbody_gs:
+                lowerbody_gs_out = self.lowerbody_gs.forward(
                     smpl_scale=data['smpl_scale'][None],
                     dataset_idx=rnd_idx,
                     is_train=True,
@@ -326,7 +380,8 @@ class GaussianTrainer():
             render_pkg = render_human_scene(
                 data=data, 
                 human_gs_out=human_gs_out,
-                cloth_gs_out=cloth_gs_out,
+                upperbody_gs_out=upperbody_gs_out,
+                lowerbody_gs_out=lowerbody_gs_out,
                 scene_gs_out=scene_gs_out, 
                 bg_color=bg_color,
                 human_bg_color=human_bg_color,
@@ -347,8 +402,10 @@ class GaussianTrainer():
                 human_gs_init_values=self.human_gs.init_values if self.human_gs else None,
                 bg_color=bg_color,
                 human_bg_color=human_bg_color,
-                cloth_gs_out=cloth_gs_out,
-                cloth_gs_init_values=self.cloth_gs.init_values if self.cloth_gs else None,
+                upperbody_gs_out=upperbody_gs_out,
+                upperbody_gs_init_values=self.upperbody_gs.init_values if self.upperbody_gs else None,
+                lowerbody_gs_out=lowerbody_gs_out,
+                lowerbody_gs_init_values=self.lowerbody_gs.init_values if self.lowerbody_gs else None,
                 cloth_bg_color=cloth_bg_color,
             )
             
@@ -396,21 +453,32 @@ class GaussianTrainer():
 
 
                 mask = data['mask'].unsqueeze(0)
-                gt_human_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
+                humanbody_mask = data['humanbody_mask'].unsqueeze(0)
+                gt_human_image = gt_img * humanbody_mask + human_bg_color[:, None, None] * (1. - humanbody_mask)
 
-                cloth_mask = data['upperbody_mask']
-                # cloth area in cloth_mask is r = 1, g = 0, b = 0,get the cloth area image
+                upperbody_mask = data['upperbody_mask']
+                # cloth area in upperbody_mask is r = 1, g = 0, b = 0,get the cloth area image
                 # cloth_area = torch.zeros_like(gt_img)
-                # cloth_area[cloth_mask == 0] = gt_img[cloth_mask == 0]
+                # cloth_area[upperbody_mask == 0] = gt_img[upperbody_mask == 0]
                 # cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
-                gt_cloth_img = gt_img * cloth_mask + cloth_bg_color[:, None, None] * (1. - cloth_mask)
+                gt_upperbody_img = gt_img * upperbody_mask + cloth_bg_color[:, None, None] * (1. - upperbody_mask)
 
-                cloth_img = render_pkg['upperbody_img']
+                upperbody_img = render_pkg['upperbody_img']
 
-                cloth_diff = torch.abs(cloth_img - gt_cloth_img)
-                cloth_mse_loss = torch.mean(cloth_diff, dim=0)
-                cloth_diff_image = cloth_mse_loss.unsqueeze(0)
-                cloth_diff_image = cloth_diff_image.repeat(3, 1, 1)
+                upperbody_diff = torch.abs(upperbody_img - gt_upperbody_img)
+                upperbody_mse_loss = torch.mean(upperbody_diff, dim=0)
+                upperbody_diff_image = upperbody_mse_loss.unsqueeze(0)
+                upperbody_diff_image = upperbody_diff_image.repeat(3, 1, 1)
+                
+                lowerbody_mask = data['lowerbody_mask']
+                gt_lowerbody_img = gt_img * lowerbody_mask + cloth_bg_color[:, None, None] * (1. - lowerbody_mask)
+
+                lowerbody_img = render_pkg['lowerbody_img']
+
+                lowerbody_diff = torch.abs(lowerbody_img - gt_lowerbody_img)
+                lowerbody_mse_loss = torch.mean(lowerbody_diff, dim=0)
+                lowerbody_diff_image = lowerbody_mse_loss.unsqueeze(0)
+                lowerbody_diff_image = lowerbody_diff_image.repeat(3, 1, 1)
 
 
                 human_img = render_pkg['human_img']
@@ -423,58 +491,75 @@ class GaussianTrainer():
                 pred_img = torchvision.transforms.ToPILImage()(pred_img)
                 gt_img = torchvision.transforms.ToPILImage()(gt_img)
 
-                gt_cloth_img = torchvision.transforms.ToPILImage()(gt_cloth_img)
-                cloth_img = torchvision.transforms.ToPILImage()(cloth_img)
+                gt_upperbody_img = torchvision.transforms.ToPILImage()(gt_upperbody_img)
+                upperbody_img = torchvision.transforms.ToPILImage()(upperbody_img)
+
+                gt_lowerbody_img = torchvision.transforms.ToPILImage()(gt_lowerbody_img)
+                lowerbody_img = torchvision.transforms.ToPILImage()(lowerbody_img)
+                lowerbody_diff_image_cpu = torchvision.transforms.ToPILImage()(lowerbody_diff_image)
 
                 human_img = torchvision.transforms.ToPILImage()(human_img)
                 gt_human_image = torchvision.transforms.ToPILImage()(gt_human_image)
 
                 diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
-                cloth_diff_image_cpu = torchvision.transforms.ToPILImage()(cloth_diff_image)
+                upperbody_diff_image_cpu = torchvision.transforms.ToPILImage()(upperbody_diff_image)
                 human_diff_image_cpu = torchvision.transforms.ToPILImage()(human_diff_image)
 
                 # show three image in GUI every 100 iterations
 
-                plt.figure(dpi=108, figsize=(24, 15))
+                plt.figure(dpi=108, figsize=(24, 24))
 
-                plt.subplot(331)
+                plt.subplot(431)
                 plt.imshow(pred_img)
                 plt.axis('off')
                 plt.title("Rendered Image")
-                plt.subplot(332)
+                plt.subplot(432)
                 plt.imshow(gt_img)
                 plt.axis('off')
                 plt.title("Ground Truth")
-                plt.subplot(333)
+                plt.subplot(433)
                 plt.imshow(diff_image_cpu)
                 plt.axis('off')
                 plt.title("Difference")
 
-                plt.subplot(334)
+                plt.subplot(434)
                 plt.imshow(human_img)
                 plt.axis('off')
                 plt.title("Human Image")
-                plt.subplot(335)
+                plt.subplot(435)
                 plt.imshow(gt_human_image)
                 plt.axis('off')
                 plt.title("Human Image Ground Truth")
-                plt.subplot(336)
+                plt.subplot(436)
                 plt.imshow(human_diff_image_cpu)
                 plt.axis('off')
                 plt.title("Human Difference")
 
-                plt.subplot(337)
-                plt.imshow(cloth_img)
+                plt.subplot(437)
+                plt.imshow(upperbody_img)
                 plt.axis('off')
-                plt.title("Cloth Image")
-                plt.subplot(338)
-                plt.imshow(gt_cloth_img)
+                plt.title("Upperbody Image")
+                plt.subplot(438)
+                plt.imshow(gt_upperbody_img)
                 plt.axis('off')
-                plt.title("Cloth Ground Truth")
-                plt.subplot(339)
-                plt.imshow(cloth_diff_image_cpu)
+                plt.title("Upperbody Ground Truth")
+                plt.subplot(439)
+                plt.imshow(upperbody_diff_image_cpu)
                 plt.axis('off')
-                plt.title("Cloth Difference")
+                plt.title("Upperbody Difference")
+
+                plt.subplot(4, 3, 10)
+                plt.imshow(lowerbody_img)
+                plt.axis('off')
+                plt.title("Lowerbody Image")
+                plt.subplot(4, 3, 11)
+                plt.imshow(gt_lowerbody_img)
+                plt.axis('off')
+                plt.title("Lowerbody Ground Truth")
+                plt.subplot(4, 3, 12)
+                plt.imshow(lowerbody_diff_image_cpu)
+                plt.axis('off')
+                plt.title("Lowerbody Difference")
 
                 plt.savefig(f'./train_process_img/{t_iter:06d}.png')
                 plt.show()
@@ -513,9 +598,13 @@ class GaussianTrainer():
                 self.human_gs.optimizer.step()
                 self.human_gs.optimizer.zero_grad(set_to_none=True)
 
-            if self.cloth_gs:
-                self.cloth_gs.optimizer.step()
-                self.cloth_gs.optimizer.zero_grad(set_to_none=True)
+            if self.upperbody_gs:
+                self.upperbody_gs.optimizer.step()
+                self.upperbody_gs.optimizer.zero_grad(set_to_none=True)
+
+            if self.lowerbody_gs:
+                self.lowerbody_gs.optimizer.step()
+                self.lowerbody_gs.optimizer.zero_grad(set_to_none=True)
                 
             if self.scene_gs and self.cfg.train.optim_scene:
                 if t_iter >= self.cfg.scene.opt_start_iter:
@@ -536,8 +625,11 @@ class GaussianTrainer():
                     self.scene_gs.save_ply(f'{self.cfg.logdir}/meshes/scene_{t_iter:06d}_splat.ply')
                 if self.human_gs:
                     save_ply(human_gs_out, f'{self.cfg.logdir}/meshes/human_{t_iter:06d}_splat.ply')
-                if self.cloth_gs:
-                    save_ply(cloth_gs_out, f'{self.cfg.logdir}/meshes/cloth_{t_iter:06d}_splat.ply')
+                if self.upperbody_gs:
+                    save_ply(upperbody_gs_out, f'{self.cfg.logdir}/meshes/upperbody_{t_iter:06d}_splat.ply')
+                if self.lowerbody_gs:
+                    save_ply(lowerbody_gs_out, f'{self.cfg.logdir}/meshes/lowerbody_{t_iter:06d}_splat.ply')
+
 
                 if self.cfg.mode in ['human', 'human_scene']:
                     self.render_canonical(t_iter, nframes=self.cfg.human.canon_nframes)
@@ -635,7 +727,7 @@ class GaussianTrainer():
         metrics = {k: [] for k in metrics}
         
         for idx, data in enumerate(tqdm(self.val_dataset, desc="Validation")):
-            human_gs_out, scene_gs_out = None, None
+            human_gs_out,upperbody_gs_out,lowerbody_gs_out, scene_gs_out = None,None,None, None
             render_mode = self.cfg.mode
             
             if self.human_gs:
@@ -644,6 +736,29 @@ class GaussianTrainer():
                     body_pose=data['body_pose'], 
                     betas=data['betas'], 
                     transl=data['transl'], 
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=None,
+                )
+
+            if self.upperbody_gs:
+                upperbody_gs_out = self.upperbody_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=None,
+                )
+            if self.lowerbody_gs:
+                lowerbody_gs_out = self.lowerbody_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
                     smpl_scale=data['smpl_scale'][None],
                     dataset_idx=-1,
                     is_train=False,
@@ -661,8 +776,10 @@ class GaussianTrainer():
                     
             render_pkg = render_human_scene(
                 data=data, 
-                human_gs_out=human_gs_out, 
-                scene_gs_out=scene_gs_out, 
+                human_gs_out=human_gs_out,
+                upperbody_gs_out=upperbody_gs_out,
+                lowerbody_gs_out=lowerbody_gs_out,
+                scene_gs_out=scene_gs_out,
                 bg_color=bg_color,
                 render_mode=render_mode,
             )
@@ -768,7 +885,8 @@ class GaussianTrainer():
             self.human_gs.eval()
         
         os.makedirs(f'{self.cfg.logdir}/canon/', exist_ok=True)
-        os.makedirs(f'{self.cfg.logdir}/cloth_canon/', exist_ok=True)
+        os.makedirs(f'{self.cfg.logdir}/upperbody_canon/', exist_ok=True)
+        os.makedirs(f'{self.cfg.logdir}/lowerbody_canon/', exist_ok=True)
         
         camera_params = get_rotating_camera(
             dist=5.0, img_size=256 if is_train_progress else 512, 
@@ -785,12 +903,13 @@ class GaussianTrainer():
         
         if is_train_progress:
             progress_imgs = []
-            cloth_progress_imgs = []
+            upperbody_progress_imgs = []
+            lowerbody_progress_imgs = []
         
         pbar = range(nframes) if is_train_progress else tqdm(range(nframes), desc="Canonical:")
         
         for idx in pbar:
-            human_gs_out,cloth_gs_out, scene_gs_out = None, None, None
+            human_gs_out,upperbody_gs_out,lowerbody_gs_out, scene_gs_out = None, None, None, None
             
             cam_p = camera_params[idx]
             data = dict(static_smpl_params, **cam_p)
@@ -806,8 +925,19 @@ class GaussianTrainer():
                     is_train=False,
                     ext_tfs=None,
                 )
-            if self.cloth_gs:
-                cloth_gs_out = self.cloth_gs.forward(
+            if self.upperbody_gs:
+                upperbody_gs_out = self.upperbody_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
+                    smpl_scale=data['smpl_scale'],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=None,
+                )
+            if self.lowerbody_gs:
+                lowerbody_gs_out = self.lowerbody_gs.forward(
                     global_orient=data['global_orient'],
                     body_pose=data['body_pose'],
                     betas=data['betas'],
@@ -833,19 +963,35 @@ class GaussianTrainer():
 
                 progress_imgs.append(image)
 
-                cloth_render_pkg = render_human_scene(
+                upperbody_render_pkg = render_human_scene(
                     data=data,
                     human_gs_out=human_gs_out,
                     scene_gs_out=scene_gs_out,
-                    cloth_gs_out=cloth_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
-                    render_mode='cloth',
+                    render_mode='upperbody',
                     scaling_modifier=scale_mod,
                 )
 
-                cloth_imgae = cloth_render_pkg["render"]
+                upperbody_image = upperbody_render_pkg["render"]
 
-                cloth_progress_imgs.append(cloth_imgae)
+                upperbody_progress_imgs.append(upperbody_image)
+
+                lowerbody_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='lowerbody',
+                    scaling_modifier=scale_mod,
+                )
+
+                lowerbody_image = lowerbody_render_pkg["render"]
+
+                lowerbody_progress_imgs.append(lowerbody_image)
                 
                 render_pkg = render_human_scene(
                     data=data, 
@@ -859,18 +1005,33 @@ class GaussianTrainer():
                 
                 progress_imgs.append(image)
 
-                cloth_render_pkg = render_human_scene(
+                upperbody_render_pkg = render_human_scene(
                     data=data,
                     human_gs_out=human_gs_out,
                     scene_gs_out=scene_gs_out,
-                    cloth_gs_out=cloth_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
-                    render_mode='cloth',
+                    render_mode='upperbody',
                 )
 
-                cloth_imgae = cloth_render_pkg["render"]
+                upperbody_image = upperbody_render_pkg["render"]
 
-                cloth_progress_imgs.append(cloth_imgae)
+                upperbody_progress_imgs.append(upperbody_image)
+
+                lowerbody_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='lowerbody',
+                )
+
+                lowerbody_image = lowerbody_render_pkg["render"]
+
+                lowerbody_progress_imgs.append(lowerbody_image)
                 
             else:
                 render_pkg = render_human_scene(
@@ -885,18 +1046,33 @@ class GaussianTrainer():
                 
                 torchvision.utils.save_image(image, f'{self.cfg.logdir}/canon/{idx:05d}.png')
 
-                cloth_render_pkg = render_human_scene(
+                upperbody_render_pkg = render_human_scene(
                     data=data,
                     human_gs_out=human_gs_out,
                     scene_gs_out=scene_gs_out,
-                    cloth_gs_out=cloth_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
-                    render_mode='cloth',
+                    render_mode='upperbody',
                 )
 
-                cloth_image = cloth_render_pkg["render"]
+                upperbody_image = upperbody_render_pkg["render"]
 
-                torchvision.utils.save_image(cloth_image, f'{self.cfg.logdir}/cloth_canon/{idx:05d}.png')
+                torchvision.utils.save_image(upperbody_image, f'{self.cfg.logdir}/upperbody_canon/{idx:05d}.png')
+
+                lowerbody_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='lowerbody',
+                )
+
+                lowerbody_image = lowerbody_render_pkg["render"]
+
+                torchvision.utils.save_image(lowerbody_image, f'{self.cfg.logdir}/lowerbody_canon/{idx:05d}.png')
         
         if is_train_progress:
             os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
@@ -905,9 +1081,15 @@ class GaussianTrainer():
                        text_labels=f"{iter:06d}, n_gs={self.human_gs.n_gs}")
 
             os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
-            cloth_log_img = torchvision.utils.make_grid(cloth_progress_imgs, nrow=4, pad_value=0)
-            save_image(cloth_log_img, f'{self.cfg.logdir}/train_progress/cloth{iter:06d}.png',
-                       text_labels=f"{iter:06d}, n_gs={self.cloth_gs.n_gs}")
+            upperbody_log_img = torchvision.utils.make_grid(upperbody_progress_imgs, nrow=4, pad_value=0)
+            save_image(upperbody_log_img, f'{self.cfg.logdir}/train_progress/upperbody{iter:06d}.png',
+                       text_labels=f"{iter:06d}, n_gs={self.upperbody_gs.n_gs}")
+
+            os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
+            lowerbody_log_img = torchvision.utils.make_grid(lowerbody_progress_imgs, nrow=4, pad_value=0)
+            save_image(lowerbody_log_img, f'{self.cfg.logdir}/train_progress/lowerbody{iter:06d}.png',
+                       text_labels=f"{iter:06d}, n_gs={self.lowerbody_gs.n_gs}")
+
             return
         
         video_fname = f'{self.cfg.logdir}/canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
@@ -915,10 +1097,16 @@ class GaussianTrainer():
         shutil.rmtree(f'{self.cfg.logdir}/canon/')
         os.makedirs(f'{self.cfg.logdir}/canon/')
 
-        video_fname = f'{self.cfg.logdir}/cloth_canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
-        create_video(f'{self.cfg.logdir}/cloth_canon/', video_fname, fps=10)
-        shutil.rmtree(f'{self.cfg.logdir}/cloth_canon/')
-        os.makedirs(f'{self.cfg.logdir}/cloth_canon/')
+        video_fname = f'{self.cfg.logdir}/upperbody_canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
+        create_video(f'{self.cfg.logdir}/upperbody_canon/', video_fname, fps=10)
+        shutil.rmtree(f'{self.cfg.logdir}/upperbody_canon/')
+        os.makedirs(f'{self.cfg.logdir}/upperbody_canon/')
+
+        video_fname = f'{self.cfg.logdir}/lowerbody_canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
+        create_video(f'{self.cfg.logdir}/lowerbody_canon/', video_fname, fps=10)
+        shutil.rmtree(f'{self.cfg.logdir}/lowerbody_canon/')
+        os.makedirs(f'{self.cfg.logdir}/lowerbody_canon/')
+
         
     def render_poses(self, camera_params, smpl_params, pose_type='a_pose', bg_color='white'):
     

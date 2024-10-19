@@ -26,18 +26,21 @@ def render_human_scene(
     scaling_modifier=1.0, 
     render_mode='human_scene',
     render_human_separate=False,
-    cloth_gs_out =None,
+    upperbody_gs_out =None,
+    lowerbody_gs_out =None,
     render_cloth_separate=True,
     cloth_bg_color=None,
 ):
 
     feats = None
     if render_mode == 'human_scene':
-        feats = torch.cat([human_gs_out['shs'], scene_gs_out['shs']], dim=0)
-        means3D = torch.cat([human_gs_out['xyz'], scene_gs_out['xyz']], dim=0)
-        opacity = torch.cat([human_gs_out['opacity'], scene_gs_out['opacity']], dim=0)
-        scales = torch.cat([human_gs_out['scales'], scene_gs_out['scales']], dim=0)
-        rotations = torch.cat([human_gs_out['rotq'], scene_gs_out['rotq']], dim=0)
+        # cat human \upperbody_gs\ lowerbody_gs scene Gaussians
+
+        feats = torch.cat([human_gs_out['shs'], upperbody_gs_out['shs'],lowerbody_gs_out['shs'],scene_gs_out['shs']], dim=0)
+        means3D = torch.cat([human_gs_out['xyz'],upperbody_gs_out['xyz'],lowerbody_gs_out['xyz'], scene_gs_out['xyz']], dim=0)
+        opacity = torch.cat([human_gs_out['opacity'],upperbody_gs_out['opacity'],lowerbody_gs_out['opacity'], scene_gs_out['opacity']], dim=0)
+        scales = torch.cat([human_gs_out['scales'],upperbody_gs_out['scales'],lowerbody_gs_out['scales'], scene_gs_out['scales']], dim=0)
+        rotations = torch.cat([human_gs_out['rotq'],upperbody_gs_out['rotq'],lowerbody_gs_out['rotq'], scene_gs_out['rotq']], dim=0)
         active_sh_degree = human_gs_out['active_sh_degree']
     elif render_mode == 'human':
         feats = human_gs_out['shs']
@@ -53,13 +56,20 @@ def render_human_scene(
         scales = scene_gs_out['scales']
         rotations = scene_gs_out['rotq']
         active_sh_degree = scene_gs_out['active_sh_degree']
-    elif render_mode == 'cloth':
-        feats = cloth_gs_out['shs']
-        means3D = cloth_gs_out['xyz']
-        opacity = cloth_gs_out['opacity']
-        scales = cloth_gs_out['scales']
-        rotations = cloth_gs_out['rotq']
-        active_sh_degree = cloth_gs_out['active_sh_degree']
+    elif render_mode == 'upperbody':
+        feats = upperbody_gs_out['shs']
+        means3D = upperbody_gs_out['xyz']
+        opacity = upperbody_gs_out['opacity']
+        scales = upperbody_gs_out['scales']
+        rotations = upperbody_gs_out['rotq']
+        active_sh_degree = upperbody_gs_out['active_sh_degree']
+    elif render_mode == 'lowerbody':
+        feats = lowerbody_gs_out['shs']
+        means3D = lowerbody_gs_out['xyz']
+        opacity = lowerbody_gs_out['opacity']
+        scales = lowerbody_gs_out['scales']
+        rotations = lowerbody_gs_out['rotq']
+        active_sh_degree = lowerbody_gs_out['active_sh_degree']
     else:
         raise ValueError(f'Unknown render mode: {render_mode}')
     
@@ -91,33 +101,54 @@ def render_human_scene(
         render_pkg['human_visibility_filter'] = render_human_pkg['visibility_filter']
         render_pkg['human_radii'] = render_human_pkg['radii']
 
-    if cloth_gs_out != None and render_cloth_separate and render_mode == 'human_scene':
+    if upperbody_gs_out != None and render_cloth_separate and render_mode == 'human_scene':
         render_cloth_pkg = render(
-            means3D=cloth_gs_out['xyz'],
-            feats=cloth_gs_out['shs'],
-            opacity=cloth_gs_out['opacity'],
-            scales=cloth_gs_out['scales'],
-            rotations=cloth_gs_out['rotq'],
+            means3D=upperbody_gs_out['xyz'],
+            feats=upperbody_gs_out['shs'],
+            opacity=upperbody_gs_out['opacity'],
+            scales=upperbody_gs_out['scales'],
+            rotations=upperbody_gs_out['rotq'],
             data=data,
             scaling_modifier=scaling_modifier,
             bg_color=cloth_bg_color if cloth_bg_color is not None else bg_color,
-            active_sh_degree=cloth_gs_out['active_sh_degree'],
+            active_sh_degree=upperbody_gs_out['active_sh_degree'],
         )
         render_pkg['upperbody_img'] = render_cloth_pkg['render']
-        render_pkg['cloth_visibility_filter'] = render_cloth_pkg['visibility_filter']
-        render_pkg['cloth_radii'] = render_cloth_pkg['radii']
+        render_pkg['upperbody_visibility_filter'] = render_cloth_pkg['visibility_filter']
+        render_pkg['upperbody_radii'] = render_cloth_pkg['radii']
+
+    if lowerbody_gs_out != None and render_cloth_separate and render_mode == 'human_scene':
+        render_cloth_pkg = render(
+            means3D=lowerbody_gs_out['xyz'],
+            feats=lowerbody_gs_out['shs'],
+            opacity=lowerbody_gs_out['opacity'],
+            scales=lowerbody_gs_out['scales'],
+            rotations=lowerbody_gs_out['rotq'],
+            data=data,
+            scaling_modifier=scaling_modifier,
+            bg_color=cloth_bg_color if cloth_bg_color is not None else bg_color,
+            active_sh_degree=lowerbody_gs_out['active_sh_degree'],
+        )
+        render_pkg['lowerbody_img'] = render_cloth_pkg['render']
+        render_pkg['lowerbody_visibility_filter'] = render_cloth_pkg['visibility_filter']
+        render_pkg['lowerbody_radii'] = render_cloth_pkg['radii']
         
     if render_mode == 'human':
         render_pkg['human_visibility_filter'] = render_pkg['visibility_filter']
         render_pkg['human_radii'] = render_pkg['radii']
-    elif render_mode == 'cloth':
-        render_pkg['cloth_visibility_filter'] = render_pkg['visibility_filter']
-        render_pkg['cloth_radii'] = render_pkg['radii']
+    elif render_mode == 'upperbody':
+        render_pkg['upperbody_visibility_filter'] = render_pkg['visibility_filter']
+        render_pkg['upperbody_radii'] = render_pkg['radii']
+    elif render_mode == 'lowerbody':
+        render_pkg['lowerbody_visibility_filter'] = render_pkg['visibility_filter']
+        render_pkg['lowerbody_radii'] = render_pkg
     elif render_mode == 'human_scene':
         human_n_gs = human_gs_out['xyz'].shape[0]
+        upperbody_n_gs = upperbody_gs_out['xyz'].shape[0]
+        lowerbody_n_gs = lowerbody_gs_out['xyz'].shape[0]
         scene_n_gs = scene_gs_out['xyz'].shape[0]
-        render_pkg['scene_visibility_filter'] = render_pkg['visibility_filter'][human_n_gs:]
-        render_pkg['scene_radii'] = render_pkg['radii'][human_n_gs:]
+        render_pkg['scene_visibility_filter'] = render_pkg['visibility_filter'][human_n_gs+upperbody_n_gs+lowerbody_n_gs:]
+        render_pkg['scene_radii'] = render_pkg['radii'][human_n_gs+upperbody_n_gs+lowerbody_n_gs:]
         if not 'human_visibility_filter' in render_pkg.keys():
             render_pkg['human_visibility_filter'] = render_pkg['visibility_filter'][:-scene_n_gs]
             render_pkg['human_radii'] = render_pkg['radii'][:-scene_n_gs]
