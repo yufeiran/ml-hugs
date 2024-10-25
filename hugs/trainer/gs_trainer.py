@@ -854,13 +854,40 @@ class GaussianTrainer():
                     is_train=False,
                     ext_tfs=ext_tfs,
                 )
+            if self.upperbody_gs:
+                ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
+                upperbody_gs_out = self.upperbody_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=ext_tfs,
+                )
+
+            if self.lowerbody_gs:
+                ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
+                lowerbody_gs_out = self.lowerbody_gs.forward(
+                    global_orient=data['global_orient'],
+                    body_pose=data['body_pose'],
+                    betas=data['betas'],
+                    transl=data['transl'],
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=-1,
+                    is_train=False,
+                    ext_tfs=ext_tfs,
+                )
             
             if self.scene_gs:
                 scene_gs_out = self.scene_gs.forward()
                     
             render_pkg = render_human_scene(
                 data=data, 
-                human_gs_out=human_gs_out, 
+                human_gs_out=human_gs_out,
+                upperbody_gs_out=upperbody_gs_out,
+                lowerbody_gs_out=lowerbody_gs_out,
                 scene_gs_out=scene_gs_out, 
                 bg_color=self.bg_color,
                 render_mode=self.cfg.mode,
