@@ -120,6 +120,7 @@ class GaussianTrainer():
                     self.human_gs.initialize()
                     self.human_gs = optimize_init(self.human_gs, num_steps=1000)
             self.upperbody_gs = ClothGS(
+                    garment_class='t-shirt',
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,
@@ -137,6 +138,7 @@ class GaussianTrainer():
                 self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=1000)
 
             self.lowerbody_gs = ClothGS(
+                    garment_class='pant',
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,

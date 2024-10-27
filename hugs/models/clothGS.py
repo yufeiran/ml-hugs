@@ -60,6 +60,7 @@ class ClothGS:
 
     def __init__(
             self,
+            garment_class: str,
             sh_degree: int,
             only_rgb: bool = False,
             n_subdivision: int = 0,
@@ -124,7 +125,7 @@ class ClothGS:
         ).edges_unique
         self.edges = torch.from_numpy(edges).to(self.device).long()
 
-        self.tailorNet = TailorNet_Layer(SMPL_PATH).to(self.device)
+        self.tailorNet = TailorNet_Layer(garment_class,SMPL_PATH).to(self.device)
 
         self.init_values = {}
         self.get_vitruvian_verts()
@@ -523,6 +524,8 @@ class ClothGS:
             homogen_coord = torch.ones_like(gs_xyz[..., :1])
             gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
             deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
+
+
 
         if smpl_scale is not None:
             deformed_xyz = deformed_xyz * smpl_scale.unsqueeze(0)

@@ -59,7 +59,9 @@ class TailorNet_Layer(nn.Module):
     SHAPE_SPACE_DIM = 300
 
     def __init__(
-            self, model_path: str,
+            self,
+            garment_class: str,
+            model_path: str,
             kid_template_path: str = '',
             data_struct: Optional[Struct] = None,
             create_betas: bool = True,
@@ -272,7 +274,7 @@ class TailorNet_Layer(nn.Module):
         lbs_weights = to_tensor(to_np(data_struct.weights), dtype=dtype)
         self.register_buffer('lbs_weights', lbs_weights)
 
-        self.tailorNet = tailornet.TailorNet()
+        self.tailorNet = tailornet.TailorNet(gender, garment_class)
 
     @property
     def num_betas(self):
