@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 cfg = OmegaConf.create()
 cfg.seed = 0
 cfg.mode = 'human' # 'human_scene' or 'scene'
-cfg.output_path = 'output'
+cfg.output_path = '/mnt/data1/yu/data/ml-hugs/output'
 cfg.cfg_file = ''
 cfg.exp_name = 'test'
 cfg.dataset_path = ''

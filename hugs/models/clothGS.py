@@ -125,7 +125,7 @@ class ClothGS:
         ).edges_unique
         self.edges = torch.from_numpy(edges).to(self.device).long()
 
-        self.tailorNet = TailorNet_Layer(garment_class,SMPL_PATH).to(self.device)
+        self.tailorNet_layer = TailorNet_Layer(garment_class,SMPL_PATH).to(self.device)
 
         self.init_values = {}
         self.get_vitruvian_verts()
@@ -473,7 +473,7 @@ class ClothGS:
             return_full_pose=True,
         )
 
-        tailorNet_output = self.tailorNet(
+        tailorNet_output = self.tailorNet_layer(
             betas=betas.unsqueeze(0),
             body_pose=body_pose.unsqueeze(0),
             global_orient=global_orient.unsqueeze(0),
@@ -603,10 +603,12 @@ class ClothGS:
         vitruvian_pose[5] = -1.0
         smpl_output = self.smpl_template(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
         vitruvian_verts = smpl_output.vertices[0]
-        tailor_net_output =  self.tailorNet(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
-        cloth_verts = tailor_net_output.tailornet_v
+        tailor_net_output =  self.tailorNet_layer(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
 
-        return vitruvian_verts.detach(), cloth_verts.detach().cuda()
+        cloth_verts = tailor_net_output.tailornet_v
+        cloth_faces = tailor_net_output.tailornet_f
+
+        return vitruvian_verts.detach(), cloth_verts.detach().cuda(), cloth_faces.detach().cuda()
 
     def train(self):
         pass
@@ -615,8 +617,9 @@ class ClothGS:
         pass
 
     def initialize(self):
-        t_pose_verts,cloth_t_pose_verts = self.get_vitruvian_verts_template()
+        t_pose_verts,cloth_t_pose_verts,cloth_faces = self.get_vitruvian_verts_template()
         cloth_t_pose_verts = cloth_t_pose_verts.float()
+        t_pose_verts = cloth_t_pose_verts
 
         self.scaling_multiplier = torch.ones((t_pose_verts.shape[0], 1), device="cuda")
 
@@ -629,6 +632,11 @@ class ClothGS:
         shs = shs.transpose(1, 2).contiguous()
 
         scales = torch.zeros_like(t_pose_verts)
+
+        import trimesh
+        mesh = trimesh.Trimesh(vertices=t_pose_verts.detach().cpu().numpy(), faces=cloth_faces.cpu().numpy())
+        edges = mesh.edges_unique
+        self.edges = torch.from_numpy(edges).to(self.device).long()
         for v in range(t_pose_verts.shape[0]):
             selected_edges = torch.any(self.edges == v, dim=-1)
             selected_edges_len = torch.norm(
@@ -651,8 +659,7 @@ class ClothGS:
             scale_z = torch.ones_like(scales[:, -1:]) * SCALE_Z
             scales = torch.cat([scales, scale_z], dim=-1)
 
-        import trimesh
-        mesh = trimesh.Trimesh(vertices=t_pose_verts.detach().cpu().numpy(), faces=self.smpl_template.faces)
+
         vert_normals = torch.tensor(mesh.vertex_normals).float().cuda()
 
         gs_normals = torch.zeros_like(vert_normals)
@@ -669,7 +676,8 @@ class ClothGS:
         opacity = 0.1 * torch.ones((t_pose_verts.shape[0], 1), dtype=torch.float, device="cuda")
 
         posedirs = self.smpl_template.posedirs.detach().clone()
-        lbs_weights = self.smpl_template.lbs_weights.detach().clone()
+        lbs_weights = self.tailorNet_layer.tailorNet.get_w()
+        lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
 
         self.n_gs = t_pose_verts.shape[0]
         self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))

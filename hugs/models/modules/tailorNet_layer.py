@@ -51,6 +51,7 @@ class TailorNetOutput(ModelOutput):
     v_shaped: Optional[Tensor] = None
     tailornet_v: Optional[Tensor] = None
     tailornet_t: Optional[Tensor] = None
+    tailornet_f: Optional[Tensor] = None
 
 
 class TailorNet_Layer(nn.Module):
@@ -494,7 +495,7 @@ class TailorNet_Layer(nn.Module):
             disable_posedirs=disable_posedirs,
         )
 
-        tailornet_output = self.tailorNet.run(full_pose,betas)
+        cloth_verts, cloth_faces = self.tailorNet.run(full_pose,betas)
 
         joints = self.vertex_joint_selector(vertices, joints)
         # Map the joints to the current dataset
@@ -521,7 +522,9 @@ class TailorNet_Layer(nn.Module):
                             pose_offsets=pose_offsets,
                             v_posed=v_posed,
                             v_shaped=v_shaped,
-                            tailornet_v=tailornet_output,)
+                            tailornet_v=cloth_verts,
+                            tailornet_f= cloth_faces
+                                 )
 
         return output
 
