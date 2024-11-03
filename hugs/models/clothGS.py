@@ -525,7 +525,7 @@ class ClothGS:
             gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
             deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
 
-
+        deformed_xyz = tailorNet_output.tailornet_v.float().to('cuda')
 
         if smpl_scale is not None:
             deformed_xyz = deformed_xyz * smpl_scale.unsqueeze(0)
@@ -677,10 +677,10 @@ class ClothGS:
 
         posedirs = self.smpl_template.posedirs.detach().clone()
         lbs_weights = self.tailorNet_layer.tailorNet.get_w()
-        lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
+        self.lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
 
         self.n_gs = t_pose_verts.shape[0]
-        self._xyz = nn.Parameter(t_pose_verts.requires_grad_(True))
+        self._xyz = nn.Parameter(t_pose_verts.detach(), requires_grad=False)
         #self._xyz = nn.Parameter(cloth_t_pose_verts.requires_grad_(True))
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
@@ -690,7 +690,7 @@ class ClothGS:
             'rot6d_canon': rot6d,
             'shs': shs,
             'opacity': opacity,
-            'lbs_weights': lbs_weights,
+            'lbs_weights': self.lbs_weights,
             'posedirs': posedirs,
             'deformed_normals': deformed_normals,
             'faces': self.smpl.faces_tensor,

@@ -37,7 +37,7 @@ def mocap_path(scene_name):
 
 if __name__=='__main__':
 
-    seq = 'citron'
+    seq = 'jogging'
 
     load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
@@ -77,7 +77,7 @@ if __name__=='__main__':
 
     need_to_run_tailornet = True
     if need_to_run_tailornet:
-        tailorNet = TailorNet()
+        tailorNet = TailorNet('male','t-shirt')
         tailorNet.out_path = os.path.join(os.getcwd(),"cloth_mesh_output")
 
         vert_indeces = tailorNet.get_vert_indices()

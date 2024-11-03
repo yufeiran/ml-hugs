@@ -26,6 +26,7 @@ class HumanSceneLoss(nn.Module):
         patch_size=32,
         use_patches=True,
         bg_color='white',
+
     ):
         super(HumanSceneLoss, self).__init__()
         
@@ -59,6 +60,7 @@ class HumanSceneLoss(nn.Module):
         upperbody_gs_init_values=None,
         lowerbody_gs_init_values=None,
         cloth_bg_color=None,
+        is_human_with_cloth_seprate=False,
     ):
         loss_dict = {}
         extras_dict = {}
@@ -146,7 +148,7 @@ class HumanSceneLoss(nn.Module):
                 loss_lpips = self.lpips(cropped_pred_img.clip(max=1), cropped_gt_image).mean()
                 loss_dict['lpips'] = self.l_lpips_w * loss_lpips
                 
-        if self.l_humansep_w > 0.0 and render_mode == "human_scene":
+        if is_human_with_cloth_seprate and self.l_humansep_w > 0.0 and render_mode == "human_scene":
             pred_human_img = render_pkg['human_img']
             gt_human_image = gt_image * fullbody_mask + human_bg_color[:, None, None] * (1. - fullbody_mask)
             
@@ -164,7 +166,7 @@ class HumanSceneLoss(nn.Module):
             loss_lpips_human = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
             loss_dict['lpips_patch_human'] = self.l_lpips_w * loss_lpips_human * self.l_humansep_w
 
-        if self.l_clothsep_w > 0.0 and render_mode == "human_scene":
+        if is_human_with_cloth_seprate and self.l_clothsep_w > 0.0 and render_mode == "human_scene":
             pred_upperbody_img = render_pkg['upperbody_img']
             gt_upperbody_image = gt_image * upperbody_mask + cloth_bg_color[:, None, None] * (1 - upperbody_mask)
 
@@ -182,7 +184,7 @@ class HumanSceneLoss(nn.Module):
             loss_lpips_cloth = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
             loss_dict['lpips_patch_upperbody'] = self.l_lpips_w * loss_lpips_cloth * self.l_clothsep_w
 
-        if self.l_clothsep_w > 0.0 and render_mode == "human_scene":
+        if is_human_with_cloth_seprate and self.l_clothsep_w > 0.0 and render_mode == "human_scene":
             pred_lowerbody_img = render_pkg['lowerbody_img']
             gt_lowerbody_image = gt_image * lowerbody_mask + cloth_bg_color[:, None, None] * (1 - lowerbody_mask)
 
@@ -199,6 +201,24 @@ class HumanSceneLoss(nn.Module):
             _, pred_patches, gt_patches = self.patch_sampler.sample(lowerbody_mask, image_bg, gt_image_bg)
             loss_lpips_cloth = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
             loss_dict['lpips_patch_lowerbody'] = self.l_lpips_w * loss_lpips_cloth * self.l_clothsep_w
+
+        if is_human_with_cloth_seprate is False and self.l_clothsep_w > 0.0 and render_mode == "human_scene":
+            pred_human_with_cloth_img = render_pkg['human_with_cloth_img']
+            gt_human_with_cloth_image = gt_image * mask + human_bg_color[:, None, None] * (1 - mask)
+
+            Ll1_human_with_cloth = l1_loss(pred_human_with_cloth_img, gt_human_with_cloth_image, mask)
+            loss_dict['Ll1_human_with_cloth'] = self.l_l1_w * Ll1_human_with_cloth * self.l_clothsep_w
+
+            loss_ssim_human_with_cloth = 1.0 - ssim(pred_human_with_cloth_img, gt_human_with_cloth_image)
+            loss_ssim_human_with_cloth = loss_ssim_human_with_cloth * (mask.sum() / (pred_human_with_cloth_img.shape[-1] * pred_human_with_cloth_img.shape[-2]))
+            loss_dict['ssim_human_with_cloth'] = self.l_ssim_w * loss_ssim_human_with_cloth * self.l_clothsep_w
+
+            bg_color_lpips = torch.rand_like(pred_human_with_cloth_img)
+            image_bg = pred_human_with_cloth_img * mask + bg_color_lpips * (1 - mask)
+            gt_image_bg = gt_human_with_cloth_image * mask + bg_color_lpips * (1 - mask)
+            _, pred_patches, gt_patches = self.patch_sampler.sample(mask, image_bg, gt_image_bg)
+            loss_lpips_human_with_cloth = self.lpips(pred_patches.clip(max=1), gt_patches).mean()
+            loss_dict['lpips_patch_human_with_cloth'] = self.l_lpips_w * loss_lpips_human_with_cloth * self.l_clothsep_w
         
 
         if self.l_lbs_w > 0.0 and human_gs_out['lbs_weights'] is not None and not render_mode == "scene":

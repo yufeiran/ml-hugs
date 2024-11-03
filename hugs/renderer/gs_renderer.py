@@ -28,13 +28,14 @@ def render_human_scene(
     render_human_separate=False,
     upperbody_gs_out =None,
     lowerbody_gs_out =None,
-    render_cloth_separate=True,
     cloth_bg_color=None,
+    render_cloth_separate=True,
 ):
 
     feats = None
     if render_mode == 'human_scene':
         # cat human \upperbody_gs\ lowerbody_gs scene Gaussians
+
 
         feats = torch.cat([human_gs_out['shs'], upperbody_gs_out['shs'],lowerbody_gs_out['shs'],scene_gs_out['shs']], dim=0)
         means3D = torch.cat([human_gs_out['xyz'],upperbody_gs_out['xyz'],lowerbody_gs_out['xyz'], scene_gs_out['xyz']], dim=0)
@@ -84,8 +85,35 @@ def render_human_scene(
         bg_color=bg_color,
         active_sh_degree=active_sh_degree,
     )
+
+
+    if render_cloth_separate == False and render_mode == 'human_scene':
+        human_with_cloth_feats = torch.cat([human_gs_out['shs'], upperbody_gs_out['shs'],lowerbody_gs_out['shs']], dim=0)
+        human_with_cloth_means3D = torch.cat([human_gs_out['xyz'],upperbody_gs_out['xyz'],lowerbody_gs_out['xyz']], dim=0)
+        human_with_cloth_opacity = torch.cat([human_gs_out['opacity'],upperbody_gs_out['opacity'],lowerbody_gs_out['opacity']], dim=0)
+        human_with_cloth_scales = torch.cat([human_gs_out['scales'],upperbody_gs_out['scales'],lowerbody_gs_out['scales']], dim=0)
+        human_with_cloth_rotations = torch.cat([human_gs_out['rotq'],upperbody_gs_out['rotq'],lowerbody_gs_out['rotq']], dim=0)
+        human_with_cloth_active_sh_degree = human_gs_out['active_sh_degree']
+
+
+        render_human_with_cloth_pkg = render(
+            means3D=human_with_cloth_means3D,
+            feats=human_with_cloth_feats,
+            opacity=human_with_cloth_opacity,
+            scales=human_with_cloth_scales,
+            rotations=human_with_cloth_rotations,
+            data=data,
+            scaling_modifier=scaling_modifier,
+            bg_color=human_bg_color if human_bg_color is not None else bg_color,
+            active_sh_degree=human_with_cloth_active_sh_degree,
+        )
+
+        render_pkg['human_with_cloth_img'] = render_human_with_cloth_pkg['render']
+        render_pkg['human_with_cloth_visibility_filter'] = render_human_with_cloth_pkg['visibility_filter']
+        render_pkg['human_with_cloth_radii'] = render_human_with_cloth_pkg['radii']
+
         
-    if render_human_separate and render_mode == 'human_scene':
+    if render_human_separate and render_cloth_separate is True and render_mode == 'human_scene':
         render_human_pkg = render(
             means3D=human_gs_out['xyz'],
             feats=human_gs_out['shs'],

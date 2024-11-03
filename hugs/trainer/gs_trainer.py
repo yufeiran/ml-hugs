@@ -73,6 +73,8 @@ def get_anim_dataset(cfg):
 class GaussianTrainer():
     def __init__(self, cfg) -> None:
         self.cfg = cfg
+
+        self.is_human_with_cloth_separate = False
         
         # get dataset
         if not cfg.eval:
@@ -85,7 +87,7 @@ class GaussianTrainer():
         # get models
         self.human_gs, self.scene_gs = None, None
 
-        optimize_count = 700
+        optimize_count = 7000
         
         if cfg.mode in ['human', 'human_scene']:
             if cfg.human.name == 'hugs_wo_trimlp':
@@ -105,7 +107,7 @@ class GaussianTrainer():
                 init_betas = torch.stack([x['betas'] for x in self.val_dataset.cached_data], dim=0)
                 self.human_gs = HUGS_TRIMLP(
                     sh_degree=cfg.human.sh_degree, 
-                    n_subdivision=cfg.human.n_subdivision,  
+                    n_subdivision=0,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -323,7 +325,7 @@ class GaussianTrainer():
         if self.human_gs:
             self.human_gs.train()
 
-        pbar = tqdm(range(self.cfg.train.num_steps+1), desc="Training")
+        pbar = tqdm(range(self.cfg.train.num_steps+1), desc="Training" ,dynamic_ncols=True)
         
         rand_idx_iter = RandomIndexIterator(len(self.train_dataset))
         sgrad_means, sgrad_stds = [], []
@@ -392,6 +394,7 @@ class GaussianTrainer():
                 cloth_bg_color=cloth_bg_color,
                 render_mode=render_mode,
                 render_human_separate=render_human_separate,
+                render_cloth_separate=self.is_human_with_cloth_separate,
 
             )
             
@@ -416,8 +419,22 @@ class GaussianTrainer():
             loss.backward()
             
             loss_dict['loss'] = loss
-            
+
             if t_iter % 10 == 0:
+                postfix_dict = {
+                    # "#hp": f"{self.human_gs.n_gs/1000 if self.human_gs else 0:.1f}K",
+                    # "#sp": f"{self.scene_gs.get_xyz.shape[0]/1000 if self.scene_gs else 0:.1f}K",
+                    # 'h_sh_d': self.human_gs.active_sh_degree if self.human_gs else 0,
+                    # 's_sh_d': self.scene_gs.active_sh_degree if self.scene_gs else 0,
+                }
+                for k, v in loss_dict.items():
+                    #if k == 'loss':
+                    postfix_dict["l_" + k] = f"{v.item():.4f}"
+
+                pbar.set_postfix(postfix_dict)
+                pbar.update(10)
+            
+            if t_iter % 500 == 0:
                 postfix_dict = {
                     # "#hp": f"{self.human_gs.n_gs/1000 if self.human_gs else 0:.1f}K",
                     # "#sp": f"{self.scene_gs.get_xyz.shape[0]/1000 if self.scene_gs else 0:.1f}K",
@@ -454,116 +471,159 @@ class GaussianTrainer():
                 # 变回rgb通道
                 diff_image = diff_image.repeat(3, 1, 1)
 
-
-
                 mask = data['mask'].unsqueeze(0)
-                humanbody_mask = data['humanbody_mask'].unsqueeze(0)
-                gt_human_image = gt_img * humanbody_mask + human_bg_color[:, None, None] * (1. - humanbody_mask)
+                gt_human_with_colth_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
 
-                upperbody_mask = data['upperbody_mask']
-                # cloth area in upperbody_mask is r = 1, g = 0, b = 0,get the cloth area image
-                # cloth_area = torch.zeros_like(gt_img)
-                # cloth_area[upperbody_mask == 0] = gt_img[upperbody_mask == 0]
-                # cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
-                gt_upperbody_img = gt_img * upperbody_mask + cloth_bg_color[:, None, None] * (1. - upperbody_mask)
+                if self.is_human_with_cloth_separate is False:
+                    pred_img = torchvision.transforms.ToPILImage()(pred_img)
+                    gt_img = torchvision.transforms.ToPILImage()(gt_img)
+                    diff_image = torchvision.transforms.ToPILImage()(diff_image)
 
-                upperbody_img = render_pkg['upperbody_img']
+                    human_with_cloth_image = render_pkg['human_with_cloth_img']
+                    diff_human_with_cloth = torch.abs(human_with_cloth_image - gt_human_with_colth_image)
+                    human_with_cloth_mse_loss = torch.mean(diff_human_with_cloth, dim=0)
+                    diff_human_with_cloth_image = human_with_cloth_mse_loss.unsqueeze(0)
 
-                upperbody_diff = torch.abs(upperbody_img - gt_upperbody_img)
-                upperbody_mse_loss = torch.mean(upperbody_diff, dim=0)
-                upperbody_diff_image = upperbody_mse_loss.unsqueeze(0)
-                upperbody_diff_image = upperbody_diff_image.repeat(3, 1, 1)
-                
-                lowerbody_mask = data['lowerbody_mask']
-                gt_lowerbody_img = gt_img * lowerbody_mask + cloth_bg_color[:, None, None] * (1. - lowerbody_mask)
+                    human_with_cloth_image = torchvision.transforms.ToPILImage()(human_with_cloth_image)
+                    gt_human_with_colth_image = torchvision.transforms.ToPILImage()(gt_human_with_colth_image)
+                    diff_human_with_cloth_image = torchvision.transforms.ToPILImage()(diff_human_with_cloth_image)
 
-                lowerbody_img = render_pkg['lowerbody_img']
+                    plt.figure(dpi=108, figsize=(24, 24))
+                    plt.subplot(231)
+                    plt.imshow(pred_img)
+                    plt.axis('off')
+                    plt.title("Rendered Image")
+                    plt.subplot(232)
+                    plt.imshow(gt_img)
+                    plt.axis('off')
+                    plt.title("Ground Truth")
+                    plt.subplot(233)
+                    plt.imshow(diff_image)
+                    plt.axis('off')
+                    plt.title("Difference")
 
-                lowerbody_diff = torch.abs(lowerbody_img - gt_lowerbody_img)
-                lowerbody_mse_loss = torch.mean(lowerbody_diff, dim=0)
-                lowerbody_diff_image = lowerbody_mse_loss.unsqueeze(0)
-                lowerbody_diff_image = lowerbody_diff_image.repeat(3, 1, 1)
+                    plt.subplot(234)
+                    plt.imshow(human_with_cloth_image)
+                    plt.axis('off')
+                    plt.title("Human with Cloth Image")
+                    plt.subplot(235)
+                    plt.imshow(gt_human_with_colth_image)
+                    plt.axis('off')
+                    plt.title("Human with Cloth Ground Truth")
+                    plt.subplot(236)
+                    plt.imshow(diff_human_with_cloth_image)
 
 
-                human_img = render_pkg['human_img']
 
-                human_diff = torch.abs(human_img - gt_human_image)
-                human_mse_loss = torch.mean(human_diff, dim=0)
-                human_diff_image = human_mse_loss.unsqueeze(0)
-                human_diff_image = human_diff_image.repeat(3, 1, 1)
 
-                pred_img = torchvision.transforms.ToPILImage()(pred_img)
-                gt_img = torchvision.transforms.ToPILImage()(gt_img)
+                if self.is_human_with_cloth_separate:
+                    humanbody_mask = data['humanbody_mask'].unsqueeze(0)
+                    gt_human_image = gt_img * humanbody_mask + human_bg_color[:, None, None] * (1. - humanbody_mask)
 
-                gt_upperbody_img = torchvision.transforms.ToPILImage()(gt_upperbody_img)
-                upperbody_img = torchvision.transforms.ToPILImage()(upperbody_img)
+                    upperbody_mask = data['upperbody_mask']
+                    # cloth area in upperbody_mask is r = 1, g = 0, b = 0,get the cloth area image
+                    # cloth_area = torch.zeros_like(gt_img)
+                    # cloth_area[upperbody_mask == 0] = gt_img[upperbody_mask == 0]
+                    # cloth_area = torchvision.transforms.ToPILImage()(cloth_area)
+                    gt_upperbody_img = gt_img * upperbody_mask + cloth_bg_color[:, None, None] * (1. - upperbody_mask)
 
-                gt_lowerbody_img = torchvision.transforms.ToPILImage()(gt_lowerbody_img)
-                lowerbody_img = torchvision.transforms.ToPILImage()(lowerbody_img)
-                lowerbody_diff_image_cpu = torchvision.transforms.ToPILImage()(lowerbody_diff_image)
+                    upperbody_img = render_pkg['upperbody_img']
 
-                human_img = torchvision.transforms.ToPILImage()(human_img)
-                gt_human_image = torchvision.transforms.ToPILImage()(gt_human_image)
+                    upperbody_diff = torch.abs(upperbody_img - gt_upperbody_img)
+                    upperbody_mse_loss = torch.mean(upperbody_diff, dim=0)
+                    upperbody_diff_image = upperbody_mse_loss.unsqueeze(0)
+                    upperbody_diff_image = upperbody_diff_image.repeat(3, 1, 1)
 
-                diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
-                upperbody_diff_image_cpu = torchvision.transforms.ToPILImage()(upperbody_diff_image)
-                human_diff_image_cpu = torchvision.transforms.ToPILImage()(human_diff_image)
+                    lowerbody_mask = data['lowerbody_mask']
+                    gt_lowerbody_img = gt_img * lowerbody_mask + cloth_bg_color[:, None, None] * (1. - lowerbody_mask)
 
-                # show three image in GUI every 100 iterations
+                    lowerbody_img = render_pkg['lowerbody_img']
 
-                plt.figure(dpi=108, figsize=(24, 24))
+                    lowerbody_diff = torch.abs(lowerbody_img - gt_lowerbody_img)
+                    lowerbody_mse_loss = torch.mean(lowerbody_diff, dim=0)
+                    lowerbody_diff_image = lowerbody_mse_loss.unsqueeze(0)
+                    lowerbody_diff_image = lowerbody_diff_image.repeat(3, 1, 1)
 
-                plt.subplot(431)
-                plt.imshow(pred_img)
-                plt.axis('off')
-                plt.title("Rendered Image")
-                plt.subplot(432)
-                plt.imshow(gt_img)
-                plt.axis('off')
-                plt.title("Ground Truth")
-                plt.subplot(433)
-                plt.imshow(diff_image_cpu)
-                plt.axis('off')
-                plt.title("Difference")
 
-                plt.subplot(434)
-                plt.imshow(human_img)
-                plt.axis('off')
-                plt.title("Human Image")
-                plt.subplot(435)
-                plt.imshow(gt_human_image)
-                plt.axis('off')
-                plt.title("Human Image Ground Truth")
-                plt.subplot(436)
-                plt.imshow(human_diff_image_cpu)
-                plt.axis('off')
-                plt.title("Human Difference")
+                    human_img = render_pkg['human_img']
 
-                plt.subplot(437)
-                plt.imshow(upperbody_img)
-                plt.axis('off')
-                plt.title("Upperbody Image")
-                plt.subplot(438)
-                plt.imshow(gt_upperbody_img)
-                plt.axis('off')
-                plt.title("Upperbody Ground Truth")
-                plt.subplot(439)
-                plt.imshow(upperbody_diff_image_cpu)
-                plt.axis('off')
-                plt.title("Upperbody Difference")
+                    human_diff = torch.abs(human_img - gt_human_image)
+                    human_mse_loss = torch.mean(human_diff, dim=0)
+                    human_diff_image = human_mse_loss.unsqueeze(0)
+                    human_diff_image = human_diff_image.repeat(3, 1, 1)
 
-                plt.subplot(4, 3, 10)
-                plt.imshow(lowerbody_img)
-                plt.axis('off')
-                plt.title("Lowerbody Image")
-                plt.subplot(4, 3, 11)
-                plt.imshow(gt_lowerbody_img)
-                plt.axis('off')
-                plt.title("Lowerbody Ground Truth")
-                plt.subplot(4, 3, 12)
-                plt.imshow(lowerbody_diff_image_cpu)
-                plt.axis('off')
-                plt.title("Lowerbody Difference")
+                    pred_img = torchvision.transforms.ToPILImage()(pred_img)
+                    gt_img = torchvision.transforms.ToPILImage()(gt_img)
+
+                    gt_upperbody_img = torchvision.transforms.ToPILImage()(gt_upperbody_img)
+                    upperbody_img = torchvision.transforms.ToPILImage()(upperbody_img)
+
+                    gt_lowerbody_img = torchvision.transforms.ToPILImage()(gt_lowerbody_img)
+                    lowerbody_img = torchvision.transforms.ToPILImage()(lowerbody_img)
+                    lowerbody_diff_image_cpu = torchvision.transforms.ToPILImage()(lowerbody_diff_image)
+
+                    human_img = torchvision.transforms.ToPILImage()(human_img)
+                    gt_human_image = torchvision.transforms.ToPILImage()(gt_human_image)
+
+                    diff_image_cpu = torchvision.transforms.ToPILImage()(diff_image)
+                    upperbody_diff_image_cpu = torchvision.transforms.ToPILImage()(upperbody_diff_image)
+                    human_diff_image_cpu = torchvision.transforms.ToPILImage()(human_diff_image)
+
+                    # show three image in GUI every 100 iterations
+
+                    plt.figure(dpi=108, figsize=(24, 24))
+
+                    plt.subplot(431)
+                    plt.imshow(pred_img)
+                    plt.axis('off')
+                    plt.title("Rendered Image")
+                    plt.subplot(432)
+                    plt.imshow(gt_img)
+                    plt.axis('off')
+                    plt.title("Ground Truth")
+                    plt.subplot(433)
+                    plt.imshow(diff_image_cpu)
+                    plt.axis('off')
+                    plt.title("Difference")
+
+                    plt.subplot(434)
+                    plt.imshow(human_img)
+                    plt.axis('off')
+                    plt.title("Human Image")
+                    plt.subplot(435)
+                    plt.imshow(gt_human_image)
+                    plt.axis('off')
+                    plt.title("Human Image Ground Truth")
+                    plt.subplot(436)
+                    plt.imshow(human_diff_image_cpu)
+                    plt.axis('off')
+                    plt.title("Human Difference")
+
+                    plt.subplot(437)
+                    plt.imshow(upperbody_img)
+                    plt.axis('off')
+                    plt.title("Upperbody Image")
+                    plt.subplot(438)
+                    plt.imshow(gt_upperbody_img)
+                    plt.axis('off')
+                    plt.title("Upperbody Ground Truth")
+                    plt.subplot(439)
+                    plt.imshow(upperbody_diff_image_cpu)
+                    plt.axis('off')
+                    plt.title("Upperbody Difference")
+
+                    plt.subplot(4, 3, 10)
+                    plt.imshow(lowerbody_img)
+                    plt.axis('off')
+                    plt.title("Lowerbody Image")
+                    plt.subplot(4, 3, 11)
+                    plt.imshow(gt_lowerbody_img)
+                    plt.axis('off')
+                    plt.title("Lowerbody Ground Truth")
+                    plt.subplot(4, 3, 12)
+                    plt.imshow(lowerbody_diff_image_cpu)
+                    plt.axis('off')
+                    plt.title("Lowerbody Difference")
 
                 plt.savefig(f'./train_process_img/{t_iter:06d}.png')
                 plt.show()
@@ -586,7 +646,7 @@ class GaussianTrainer():
                             iteration=(t_iter - self.cfg.scene.opt_start_iter) + 1,
                         )
                         
-            if t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
                 render_pkg['human_viewspace_points'] = render_pkg['viewspace_points'][:human_gs_out['xyz'].shape[0]]
                 render_pkg['human_viewspace_points'].grad = render_pkg['viewspace_points'].grad[:human_gs_out['xyz'].shape[0]]
                 with torch.no_grad():
