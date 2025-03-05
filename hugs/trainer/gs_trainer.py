@@ -3,6 +3,7 @@
 # Copyright (C) 2024 Apple Inc. All Rights Reserved.
 #
 
+import time
 import os
 import glob
 import shutil
@@ -35,6 +36,7 @@ from hugs.renderer.gs_renderer import render_human_scene
 from hugs.utils.vis import save_ply
 from hugs.utils.image import psnr, save_image
 from hugs.utils.general import RandomIndexIterator, load_human_ckpt, save_images, create_video
+from hugs.utils.export_gs_to_uv import project_3dgs_with_covariance_torch
 
 
 def get_train_dataset(cfg):
@@ -74,7 +76,7 @@ class GaussianTrainer():
     def __init__(self, cfg) -> None:
         self.cfg = cfg
 
-        self.is_human_with_cloth_separate = False
+        self.is_human_with_cloth_separate = True
         
         # get dataset
         if not cfg.eval:
@@ -87,7 +89,7 @@ class GaussianTrainer():
         # get models
         self.human_gs, self.scene_gs = None, None
 
-        optimize_count = 7000
+        optimize_count = 500
         
         if cfg.mode in ['human', 'human_scene']:
             if cfg.human.name == 'hugs_wo_trimlp':
@@ -414,6 +416,7 @@ class GaussianTrainer():
                 lowerbody_gs_out=lowerbody_gs_out,
                 lowerbody_gs_init_values=self.lowerbody_gs.init_values if self.lowerbody_gs else None,
                 cloth_bg_color=cloth_bg_color,
+                is_human_with_cloth_seprate=self.is_human_with_cloth_separate,
             )
             
             loss.backward()
@@ -422,7 +425,7 @@ class GaussianTrainer():
 
             if t_iter % 10 == 0:
                 postfix_dict = {
-                    # "#hp": f"{self.human_gs.n_gs/1000 if self.human_gs else 0:.1f}K",
+                    "#hp": f"{self.human_gs.n_gs/1000 if self.human_gs else 0:.1f}K",
                     # "#sp": f"{self.scene_gs.get_xyz.shape[0]/1000 if self.scene_gs else 0:.1f}K",
                     # 'h_sh_d': self.human_gs.active_sh_degree if self.human_gs else 0,
                     # 's_sh_d': self.scene_gs.active_sh_degree if self.scene_gs else 0,
@@ -430,6 +433,7 @@ class GaussianTrainer():
                 for k, v in loss_dict.items():
                     #if k == 'loss':
                     postfix_dict["l_" + k] = f"{v.item():.4f}"
+                
 
                 pbar.set_postfix(postfix_dict)
                 pbar.update(10)
@@ -459,7 +463,70 @@ class GaussianTrainer():
                     log_img = np.concatenate([log_gt_img, log_pred_img], axis=1)
                     save_images(log_img, f'{self.cfg.logdir}/train/{t_iter:06d}.png')
 
-            if t_iter % 300 == 0:
+
+            export_smpl_uv_color = True 
+            export_smpl_uv_color_interval = 400
+            if export_smpl_uv_color is True and t_iter != 0 and t_iter % export_smpl_uv_color_interval == 0:
+                smpl_mesh_path = './assets/template_mesh_smpl_uv.obj'
+                feats = upperbody_gs_out['shs']
+                xyz = self.upperbody_gs._xyz
+                means3D = upperbody_gs_out['xyz']
+                opacity = upperbody_gs_out['opacity']
+                scales = upperbody_gs_out['scales']
+                rotations = upperbody_gs_out['rotq']
+                active_sh_degree = upperbody_gs_out['active_sh_degree']
+                
+                uv_image = project_3dgs_with_covariance_torch(
+                    smpl_mesh_path=smpl_mesh_path,
+                    gs_positions=xyz,
+                    gs_rotations=rotations,
+                    gs_scales=scales,
+                    gs_sh_coeffs=feats,
+                    gs_opacity=opacity,
+                    device='cuda'
+                )
+                SAVE_PATH =  self.cfg.train.smpl_uv_result_path
+                
+                # 4. 验证UV图是否包含非空像素
+                non_zero_pixels = np.any(uv_image > 0, axis=-1).sum()
+                print(f"非空像素数量: {non_zero_pixels}")
+                # assert non_zero_pixels >= len(test_vertex_indices), \
+                #     f"至少应有{len(test_vertex_indices)}个高斯点的颜色被投影到UV图"
+                
+                # 5. 可选：保存UV图供肉眼检查
+                import cv2
+                # cv2.imwrite(SAVE_PATH+"test_uv_output.png", cv2.cvtColor(uv_image, cv2.COLOR_RGB2BGR))
+                name = f'{SAVE_PATH}test_uv_output_{t_iter:06d}.png'
+                cv2.imwrite(name, cv2.cvtColor(uv_image, cv2.COLOR_RGB2BGR))
+                print("测试通过！生成的UV图已保存为 %s" % name)
+            
+            
+            if t_iter % self.cfg.train.gs_save_to_disk_interval == 0 and t_iter != 0:
+                save_dict = {
+                    'gs_positions': upperbody_gs_out['xyz_canon'],
+                    'gs_rotations': upperbody_gs_out['rotq_canon'],
+                    'gs_scales': upperbody_gs_out['scales_canon'],
+                    'gs_sh_coeffs': upperbody_gs_out['shs'],
+                    'gs_opacity': upperbody_gs_out['opacity'],
+                    'gs_active_sh_degree': upperbody_gs_out['active_sh_degree'],
+                }
+                # check if the debug base path exists
+                if not os.path.exists(self.cfg.train.results_base_path):
+                    os.makedirs(self.cfg.train.results_base_path)
+                    
+                if t_iter == 1000:
+                    pass
+                # check if the directory exists
+                if not os.path.exists(self.cfg.train.gs_save_to_disk_path):
+                    os.makedirs(self.cfg.train.gs_save_to_disk_path)
+                
+                torch.save(save_dict, f'{self.cfg.train.gs_save_to_disk_path}/gs_{t_iter:06d}.pth')
+                
+                if self.upperbody_gs:
+                    save_ply(upperbody_gs_out, f'{self.cfg.train.gs_save_to_disk_path}/upperbody_{t_iter:06d}_splat.ply')
+
+            save_result_img_interval = 100
+            if t_iter % save_result_img_interval == 0:
                 # show pred_img and gt_img by plt in one window
                 pred_img = loss_extras['pred_img']
                 gt_img = loss_extras['gt_img']
@@ -474,6 +541,7 @@ class GaussianTrainer():
                 mask = data['mask'].unsqueeze(0)
                 gt_human_with_colth_image = gt_img * mask + human_bg_color[:, None, None] * (1. - mask)
 
+                need_show_window = False
                 if self.is_human_with_cloth_separate is False:
                     pred_img = torchvision.transforms.ToPILImage()(pred_img)
                     gt_img = torchvision.transforms.ToPILImage()(gt_img)
@@ -489,6 +557,14 @@ class GaussianTrainer():
                     diff_human_with_cloth_image = torchvision.transforms.ToPILImage()(diff_human_with_cloth_image)
 
                     plt.figure(dpi=108, figsize=(24, 24))
+                    #add title for iteration
+                    plt.suptitle(f'Iteration: {t_iter}', fontsize=16)
+
+                    # add loss value for each iteration
+                    plt.text(0.5, 0.5, f'Loss: {loss.item():.4f}', fontsize=16, ha='center')
+                    # add time for each iteration
+
+                    plt.text(0.5, 0.4, f'Time: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}', fontsize=16, ha='center')
                     plt.subplot(231)
                     plt.imshow(pred_img)
                     plt.axis('off')
@@ -512,11 +588,10 @@ class GaussianTrainer():
                     plt.title("Human with Cloth Ground Truth")
                     plt.subplot(236)
                     plt.imshow(diff_human_with_cloth_image)
-
-
-
+                    
 
                 if self.is_human_with_cloth_separate:
+
                     humanbody_mask = data['humanbody_mask'].unsqueeze(0)
                     gt_human_image = gt_img * humanbody_mask + human_bg_color[:, None, None] * (1. - humanbody_mask)
 
@@ -573,6 +648,17 @@ class GaussianTrainer():
 
                     plt.figure(dpi=108, figsize=(24, 24))
 
+                    # add title for iteration
+                    plt.suptitle(f'Iteration: {t_iter}', fontsize=16)
+
+                    # add loss value for each iteration
+                    plt.text(0.5, 0.5, f'Loss: {loss.item():.4f}', fontsize=16, ha='center')
+                    # add time for each iteration
+
+                    plt.text(0.5, 0.4, f'Time: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}', fontsize=16, ha='center')
+
+
+
                     plt.subplot(431)
                     plt.imshow(pred_img)
                     plt.axis('off')
@@ -625,10 +711,17 @@ class GaussianTrainer():
                     plt.axis('off')
                     plt.title("Lowerbody Difference")
 
-                plt.savefig(f'./train_process_img/{t_iter:06d}.png')
-                plt.show()
+                path = self.cfg.train.train_process_img_path
+                
+                # check if the directory exists
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                
+                plt.savefig(path + f'{t_iter:06d}.png')
 
-
+                if need_show_window:
+                    plt.show()
+                plt.close()
 
             if t_iter >= self.cfg.scene.opt_start_iter:
                 if (t_iter - self.cfg.scene.opt_start_iter) < self.cfg.scene.densify_until_iter and self.cfg.mode in ['scene', 'human_scene']:
@@ -655,6 +748,26 @@ class GaussianTrainer():
                         visibility_filter=render_pkg['human_visibility_filter'],
                         radii=render_pkg['human_radii'],
                         viewspace_point_tensor=render_pkg['human_viewspace_points'],
+                        iteration=t_iter+1,
+                    )
+                    
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+                with torch.no_grad():
+                    self.upperbody_densification(
+                        upperbody_gs_out=upperbody_gs_out,
+                        visibility_filter=render_pkg['upperbody_visibility_filter'],
+                        radii=render_pkg['upperbody_radii'],
+                        viewspace_point_tensor=render_pkg['upperbody_viewspace_points'],
+                        iteration=t_iter+1,
+                    )
+                    
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+                with torch.no_grad():
+                    self.lowerbody_densification(
+                        lowerbody_gs_out=lowerbody_gs_out,
+                        visibility_filter=render_pkg['lowerbody_visibility_filter'],
+                        radii=render_pkg['lowerbody_radii'],
+                        viewspace_point_tensor=render_pkg['lowerbody_viewspace_points'],
                         iteration=t_iter+1,
                     )
             
@@ -773,6 +886,43 @@ class GaussianTrainer():
                 extent=self.cfg.human.densify_extent, 
                 max_screen_size=size_threshold,
                 max_n_gs=self.cfg.human.max_n_gaussians,
+            )
+            
+    def upperbody_densification(self, upperbody_gs_out, visibility_filter, radii, viewspace_point_tensor, iteration):
+        self.upperbody_gs.max_radii2D[visibility_filter] = torch.max(
+            self.upperbody_gs.max_radii2D[visibility_filter], 
+            radii[visibility_filter]
+        )
+        
+        self.upperbody_gs.add_densification_stats(viewspace_point_tensor, visibility_filter)
+
+        if iteration > self.cfg.upperbody.densify_from_iter and iteration % self.cfg.upperbody.densification_interval == 0:
+            size_threshold = 20
+            self.upperbody_gs.densify_and_prune(
+                upperbody_gs_out,
+                self.cfg.upperbody.densify_grad_threshold, 
+                min_opacity=self.cfg.upperbody.prune_min_opacity, 
+                extent=self.cfg.upperbody.densify_extent, 
+                max_screen_size=size_threshold,
+                max_n_gs=self.cfg.upperbody.max_n_gaussians,
+            )
+    def lowerbody_densification(self, lowerbody_gs_out, visibility_filter, radii, viewspace_point_tensor, iteration):
+        self.lowerbody_gs.max_radii2D[visibility_filter] = torch.max(
+            self.lowerbody_gs.max_radii2D[visibility_filter], 
+            radii[visibility_filter]
+        )
+        
+        self.lowerbody_gs.add_densification_stats(viewspace_point_tensor, visibility_filter)
+
+        if iteration > self.cfg.lowerbody.densify_from_iter and iteration % self.cfg.lowerbody.densification_interval == 0:
+            size_threshold = 20
+            self.lowerbody_gs.densify_and_prune(
+                lowerbody_gs_out,
+                self.cfg.lowerbody.densify_grad_threshold, 
+                min_opacity=self.cfg.lowerbody.prune_min_opacity, 
+                extent=self.cfg.lowerbody.densify_extent, 
+                max_screen_size=size_threshold,
+                max_n_gs=self.cfg.lowerbody.max_n_gaussians,
             )
     
     @torch.no_grad()
@@ -1213,9 +1363,9 @@ class GaussianTrainer():
             canon_forward_out = self.human_gs.canon_forward()
         
         pbar = tqdm(range(nframes), desc="Canonical:")
-        if bg_color is 'white':
+        if bg_color == 'white':
             bg_color = torch.tensor([1, 1, 1], dtype=torch.float32, device="cuda")
-        elif bg_color is 'black':
+        elif bg_color == 'black':
             bg_color = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda")
             
             

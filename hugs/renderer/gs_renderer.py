@@ -142,6 +142,7 @@ def render_human_scene(
             active_sh_degree=upperbody_gs_out['active_sh_degree'],
         )
         render_pkg['upperbody_img'] = render_cloth_pkg['render']
+        render_pkg['upperbody_viewspace_points'] = render_cloth_pkg['viewspace_points']
         render_pkg['upperbody_visibility_filter'] = render_cloth_pkg['visibility_filter']
         render_pkg['upperbody_radii'] = render_cloth_pkg['radii']
 
@@ -158,6 +159,7 @@ def render_human_scene(
             active_sh_degree=lowerbody_gs_out['active_sh_degree'],
         )
         render_pkg['lowerbody_img'] = render_cloth_pkg['render']
+        render_pkg['lowerbody_viewspace_points'] = render_cloth_pkg['viewspace_points']
         render_pkg['lowerbody_visibility_filter'] = render_cloth_pkg['visibility_filter']
         render_pkg['lowerbody_radii'] = render_cloth_pkg['radii']
         
@@ -166,9 +168,11 @@ def render_human_scene(
         render_pkg['human_radii'] = render_pkg['radii']
     elif render_mode == 'upperbody':
         render_pkg['upperbody_visibility_filter'] = render_pkg['visibility_filter']
+        render_pkg['upperbody_viewspace_points'] = render_pkg['viewspace_points']
         render_pkg['upperbody_radii'] = render_pkg['radii']
     elif render_mode == 'lowerbody':
         render_pkg['lowerbody_visibility_filter'] = render_pkg['visibility_filter']
+        render_pkg['lowerbody_viewspace_points'] = render_pkg['viewspace_points']
         render_pkg['lowerbody_radii'] = render_pkg
     elif render_mode == 'human_scene':
         human_n_gs = human_gs_out['xyz'].shape[0]

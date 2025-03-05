@@ -39,7 +39,9 @@ if __name__=='__main__':
 
     seq = 'jogging'
 
-    load_smpl_path = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
+    neu_data_path = "/mnt/data1/yu/data/ml-hugs/dataset/neuman/dataset/"
+
+    load_smpl_path = neu_data_path+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
     smpl_params_path = load_smpl_path
     smpl_params = np.load(smpl_params_path)
@@ -66,9 +68,9 @@ if __name__=='__main__':
     #tailorNet.run_demo()
 
 
-    image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/images"
-    human_segmented_image_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/segmentations"
-    result_dir = "/home/yufeiran/project/ml-hugs/data/neuman/dataset/"+seq+"/cloth_segmented_images"
+    image_dir = neu_data_path+seq+"/images"
+    human_segmented_image_dir = neu_data_path+seq+"/segmentations"
+    result_dir = neu_data_path+seq+"/cloth_segmented_images"
 
     need_to_run_cloth_segmentation = True
     if need_to_run_cloth_segmentation:

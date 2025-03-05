@@ -14,4 +14,4 @@ AMASS_SMPLH_TO_SMPL_JOINTS = np.arange(0,156).reshape((-1,3))[[
     19, 20, 21, 22, 37
 ]].reshape(-1)
 
-NEUMAN_PATH = 'data/neuman/dataset'
+NEUMAN_PATH = '/mnt/data1/yu/data/ml-hugs/dataset/neuman/dataset'

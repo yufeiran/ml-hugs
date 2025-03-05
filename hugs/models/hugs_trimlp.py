@@ -438,7 +438,6 @@ class HUGS_TRIMLP:
         else:
             lbs_weights = None
             posedirs = None
-        
         if hasattr(self, 'global_orient') and global_orient is None:
             global_orient = rotation_6d_to_axis_angle(
                 self.global_orient[dataset_idx].reshape(-1, 6)).reshape(3)
@@ -646,6 +645,7 @@ class HUGS_TRIMLP:
         
         posedirs = self.smpl_template.posedirs.detach().clone()
         lbs_weights = self.smpl_template.lbs_weights.detach().clone()
+        self.lbs_weights = lbs_weights
 
         self.n_gs = t_pose_verts.shape[0]
         self._xyz = nn.Parameter(t_pose_verts.detach(), requires_grad=False)

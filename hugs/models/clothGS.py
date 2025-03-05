@@ -525,7 +525,7 @@ class ClothGS:
             gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
             deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
 
-        deformed_xyz = tailorNet_output.tailornet_v.float().to('cuda')
+        # deformed_xyz = tailorNet_output.tailornet_v.float().to('cuda')
 
         if smpl_scale is not None:
             deformed_xyz = deformed_xyz * smpl_scale.unsqueeze(0)
