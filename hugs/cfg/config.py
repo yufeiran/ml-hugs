@@ -43,6 +43,8 @@ cfg.train.train_process_img_path = cfg.train.results_base_path + 'train_process_
 cfg.train.gs_save_to_disk_path = cfg.train.results_base_path +  'gs_data/'
 cfg.train.gs_save_to_disk_interval = 100
 cfg.train.gs_ply_save_to_disk_path = cfg.train.results_base_path + 'gs_ply_data/'
+cfg.train.init_opimization_iters = 200
+
 
 # human model configuration
 cfg.human = OmegaConf.create()

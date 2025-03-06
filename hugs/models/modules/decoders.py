@@ -34,13 +34,15 @@ class AppearanceDecoder(torch.nn.Module):
         )
         self.opacity = nn.Sequential(nn.Linear(self.hidden_dim, 1), nn.Sigmoid())
         self.shs = nn.Linear(hidden_dim, 16*3)
+        self.rgb = nn.Linear(hidden_dim, 3)
         
     def forward(self, x):
 
         x = self.net(x)
         shs = self.shs(x)
+        rgb = self.rgb(x)
         opacity = self.opacity(x)
-        return {'shs': shs, 'opacity': opacity}
+        return {'shs': shs,'rgb':rgb, 'opacity': opacity}
     
 
 class DeformationDecoder(torch.nn.Module):

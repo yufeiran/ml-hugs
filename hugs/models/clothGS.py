@@ -326,7 +326,7 @@ class ClothGS:
                 # gt lbs is needed for lbs regularization loss
                 # predicted lbs should be close to gt lbs
                 _, gt_lbs_weights = smpl_lbsweight_top_k(
-                    lbs_weights=self.smpl.lbs_weights,
+                    lbs_weights=self.tailorNet_layer.lbs_weights,
                     points=gs_xyz.unsqueeze(0),
                     template_points=self.vitruvian_verts.unsqueeze(0),
                 )
@@ -430,6 +430,8 @@ class ClothGS:
 
         gs_opacity = appearance_out['opacity']
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
+        
+        gs_rgb = appearance_out['rgb'].reshape(-1,3)
 
         if self.isotropic:
             gs_scales = torch.ones_like(gs_scales) * torch.mean(gs_scales, dim=-1, keepdim=True)
@@ -495,8 +497,13 @@ class ClothGS:
             with torch.no_grad():
                 # gt lbs is needed for lbs regularization loss
                 # predicted lbs should be close to gt lbs
+                # _, gt_lbs_weights = smpl_lbsweight_top_k(
+                #     lbs_weights=self.smpl.lbs_weights,
+                #     points=gs_xyz.unsqueeze(0),
+                #     template_points=self.vitruvian_verts.unsqueeze(0),
+                # )
                 _, gt_lbs_weights = smpl_lbsweight_top_k(
-                    lbs_weights=self.smpl.lbs_weights,
+                    lbs_weights=self.tailorNet_layer.tailorNet_lbs_weights,
                     points=gs_xyz.unsqueeze(0),
                     template_points=self.vitruvian_verts.unsqueeze(0),
                 )
@@ -565,6 +572,7 @@ class ClothGS:
             'rotmat': deformed_gs_rotmat,
             'rotmat_canon': gs_rotmat,
             'shs': deformed_gs_shs,
+            'rgb': gs_rgb,
             'opacity': gs_opacity,
             'normals': deformed_normals,
             'normals_canon': canon_normals,
@@ -585,13 +593,13 @@ class ClothGS:
         vitruvian_pose = torch.zeros(69, dtype=self.smpl.dtype, device=self.device)
         vitruvian_pose[2] = 1.0
         vitruvian_pose[5] = -1.0
-        smpl_output = self.smpl(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
-        vitruvian_verts = smpl_output.vertices[0]
-        self.A_t2vitruvian = smpl_output.A[0].detach()
-        self.T_t2vitruvian = smpl_output.T[0].detach()
+        tailor_net_output = self.tailorNet_layer(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
+        vitruvian_verts = tailor_net_output.tailornet_v
+        self.A_t2vitruvian = tailor_net_output.A[0].detach()
+        self.T_t2vitruvian = tailor_net_output.T[0].detach()
         self.inv_T_t2vitruvian = torch.inverse(self.T_t2vitruvian)
         self.inv_A_t2vitruvian = torch.inverse(self.A_t2vitruvian)
-        self.canonical_offsets = smpl_output.shape_offsets + smpl_output.pose_offsets
+        self.canonical_offsets = tailor_net_output.shape_offsets + tailor_net_output.pose_offsets
         self.canonical_offsets = self.canonical_offsets[0].detach()
         self.vitruvian_verts = vitruvian_verts.detach()
         return vitruvian_verts.detach()

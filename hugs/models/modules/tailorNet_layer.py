@@ -276,6 +276,10 @@ class TailorNet_Layer(nn.Module):
         self.register_buffer('lbs_weights', lbs_weights)
 
         self.tailorNet = tailornet.TailorNet(gender, garment_class)
+        
+        tailorNet_lbs_weights = to_tensor(self.tailorNet.get_w(), dtype=dtype)
+        self.register_buffer('tailorNet_lbs_weights', tailorNet_lbs_weights)
+
 
     @property
     def num_betas(self):

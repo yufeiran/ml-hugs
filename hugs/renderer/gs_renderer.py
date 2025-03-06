@@ -58,7 +58,8 @@ def render_human_scene(
         rotations = scene_gs_out['rotq']
         active_sh_degree = scene_gs_out['active_sh_degree']
     elif render_mode == 'upperbody':
-        feats = upperbody_gs_out['shs']
+        # feats = upperbody_gs_out['shs']
+        feats = upperbody_gs_out['rgb']
         means3D = upperbody_gs_out['xyz']
         opacity = upperbody_gs_out['opacity']
         scales = upperbody_gs_out['scales']

@@ -88,8 +88,6 @@ class GaussianTrainer():
         self.lpips = LPIPS(net="alex", pretrained=True).to('cuda')
         # get models
         self.human_gs, self.scene_gs = None, None
-
-        optimize_count = 500
         
         if cfg.mode in ['human', 'human_scene']:
             if cfg.human.name == 'hugs_wo_trimlp':
@@ -124,7 +122,7 @@ class GaussianTrainer():
                 self.human_gs.create_betas(init_betas[0], cfg.human.optim_betas)
                 if not cfg.eval:
                     self.human_gs.initialize()
-                    self.human_gs = optimize_init(self.human_gs, num_steps=optimize_count)
+                    self.human_gs = optimize_init(self.human_gs, num_steps=self.cfg.train.init_opimization_iters)
             self.upperbody_gs = ClothGS(
                     garment_class='t-shirt',
                     sh_degree=cfg.human.sh_degree,
@@ -141,7 +139,7 @@ class GaussianTrainer():
                     betas=init_betas[0])
             if not cfg.eval:
                 self.upperbody_gs.initialize()
-                self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=optimize_count)
+                self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=self.cfg.train.init_opimization_iters)
 
             self.lowerbody_gs = ClothGS(
                     garment_class='pant',
@@ -159,7 +157,7 @@ class GaussianTrainer():
                     betas=init_betas[0])
             if not cfg.eval:
                 self.lowerbody_gs.initialize()
-                self.lowerbody_gs = optimize_init(self.lowerbody_gs, num_steps=optimize_count)
+                self.lowerbody_gs = optimize_init(self.lowerbody_gs, num_steps=self.cfg.train.init_opimization_iters)
         
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
