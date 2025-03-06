@@ -254,9 +254,9 @@ def splat_elliptical_gaussian(
         color = 1 / (1 + np.exp(-color))  # Sigmoid激活
         color = np.clip(color, 0, 1)
         
-        t_sh_coeffs = sh_coeffs.transpose()
-        new_color = sh_color(normal, t_sh_coeffs)
-        new_color = np.clip(new_color, 0, 1)
+        # t_sh_coeffs = sh_coeffs.transpose()
+        # new_color = sh_color(normal, t_sh_coeffs)
+        # new_color = np.clip(new_color, 0, 1)
     
     # 遍历椭圆覆盖的像素
     for u_pixel in range(u_min, u_max + 1):
@@ -273,7 +273,7 @@ def splat_elliptical_gaussian(
             # 计算高斯权重
             weight = np.exp(-0.5 * distance)
             # 累加颜色和权重
-            uv_image[v_pixel, u_pixel] += new_color * weight * opacity
+            uv_image[v_pixel, u_pixel] += color * weight * opacity
             weight_buffer[v_pixel, u_pixel] += weight
             
 def compute_jacobian_with_scaling(mesh, face_idx):

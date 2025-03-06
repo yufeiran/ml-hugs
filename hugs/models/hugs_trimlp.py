@@ -412,14 +412,23 @@ class HUGS_TRIMLP:
         xyz_offsets = geometry_out['xyz']
         gs_rot6d = geometry_out['rotations']
         gs_scales = geometry_out['scales'] * self.scaling_multiplier
+        gs_scales = gs_scales.repeat(1, 3)  # 3 scales for each vertex
+
         
         gs_xyz = self.get_xyz + xyz_offsets
         
         gs_rotmat = rotation_6d_to_matrix(gs_rot6d)
+        
+        # make gs_rotmat to identity
+        gs_rotmat = torch.eye(3).repeat(gs_rotmat.shape[0], 1, 1).to('cuda')
+        
         gs_rotq = matrix_to_quaternion(gs_rotmat)
 
         gs_opacity = appearance_out['opacity']
+        # make gs_opacity to 1
+        gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
+        gs_rgb = appearance_out['rgb'].reshape(-1, 3)
         
         if self.isotropic:
             gs_scales = torch.ones_like(gs_scales) * torch.mean(gs_scales, dim=-1, keepdim=True)
@@ -544,6 +553,7 @@ class HUGS_TRIMLP:
             'rotmat': deformed_gs_rotmat,
             'rotmat_canon': gs_rotmat,
             'shs': deformed_gs_shs,
+            'rgb': gs_rgb,
             'opacity': gs_opacity,
             'normals': deformed_normals,
             'normals_canon': canon_normals,

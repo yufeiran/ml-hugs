@@ -162,6 +162,7 @@ class GaussianTrainer():
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
                 sh_degree=cfg.scene.sh_degree,
+                only_rgb=True,
             )
             
         # setup the optimizers
@@ -461,12 +462,10 @@ class GaussianTrainer():
                     log_img = np.concatenate([log_gt_img, log_pred_img], axis=1)
                     save_images(log_img, f'{self.cfg.logdir}/train/{t_iter:06d}.png')
 
-
-            export_smpl_uv_color = True 
-            export_smpl_uv_color_interval = 400
-            if export_smpl_uv_color is True and t_iter != 0 and t_iter % export_smpl_uv_color_interval == 0:
+            if self.cfg.train.export_smpl_uv_color is True and t_iter != 0 and t_iter % self.cfg.train.export_smpl_uv_color_interval == 0:
                 smpl_mesh_path = './assets/template_mesh_smpl_uv.obj'
-                feats = upperbody_gs_out['shs']
+                shs = upperbody_gs_out['shs']
+                rgb = upperbody_gs_out['rgb']
                 xyz = self.upperbody_gs._xyz
                 means3D = upperbody_gs_out['xyz']
                 opacity = upperbody_gs_out['opacity']
@@ -479,7 +478,8 @@ class GaussianTrainer():
                     gs_positions=xyz,
                     gs_rotations=rotations,
                     gs_scales=scales,
-                    gs_sh_coeffs=feats,
+                    gs_sh_coeffs=shs if self.cfg.train.only_rgb is False else None,
+                    gs_colors=rgb if self.cfg.train.only_rgb is True else None,
                     gs_opacity=opacity,
                     device='cuda'
                 )
@@ -495,6 +495,12 @@ class GaussianTrainer():
                 import cv2
                 # cv2.imwrite(SAVE_PATH+"test_uv_output.png", cv2.cvtColor(uv_image, cv2.COLOR_RGB2BGR))
                 name = f'{SAVE_PATH}test_uv_output_{t_iter:06d}.png'
+                
+                # check if the debug base path exists
+                if not os.path.exists(SAVE_PATH):
+                    os.makedirs(SAVE_PATH) 
+                
+                
                 cv2.imwrite(name, cv2.cvtColor(uv_image, cv2.COLOR_RGB2BGR))
                 print("测试通过！生成的UV图已保存为 %s" % name)
             
@@ -522,6 +528,7 @@ class GaussianTrainer():
                 
                 if self.upperbody_gs:
                     save_ply(upperbody_gs_out, f'{self.cfg.train.gs_save_to_disk_path}/upperbody_{t_iter:06d}_splat.ply')
+                    print(f"Saved upperbody splat to {self.cfg.train.gs_save_to_disk_path}/upperbody_{t_iter:06d}_splat.ply")
 
             save_result_img_interval = 100
             if t_iter % save_result_img_interval == 0:

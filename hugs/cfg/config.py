@@ -38,12 +38,15 @@ cfg.train.optim_scene = True
 cfg.train.save_progress_images = False
 cfg.train.progress_save_interval = 10
 cfg.train.results_base_path = './results/'
+cfg.train.export_smpl_uv_color = False
+cfg.train.export_smpl_uv_color_interval = 2000
 cfg.train.smpl_uv_result_path = cfg.train.results_base_path + 'smpl_uv_results/'
 cfg.train.train_process_img_path = cfg.train.results_base_path + 'train_process_imgs/'
 cfg.train.gs_save_to_disk_path = cfg.train.results_base_path +  'gs_data/'
 cfg.train.gs_save_to_disk_interval = 100
 cfg.train.gs_ply_save_to_disk_path = cfg.train.results_base_path + 'gs_ply_data/'
-cfg.train.init_opimization_iters = 200
+cfg.train.init_opimization_iters = 2000
+cfg.train.only_rgb = True
 
 
 # human model configuration

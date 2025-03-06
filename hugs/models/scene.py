@@ -150,6 +150,7 @@ class SceneGS:
         gs_xyz = self._xyz
         gs_opacity = self.opacity_activation(self._opacity)
         gs_features = self.get_features
+
         return {
             'xyz': gs_xyz,
             'scales': gs_scales,

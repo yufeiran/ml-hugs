@@ -99,7 +99,8 @@ class GeometryDecoder(torch.nn.Module):
         )
         self.xyz = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 3))
         self.rotations = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 6))
-        self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 2 if use_surface else 3))
+        # self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 2 if use_surface else 3))
+        self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 1))
         
     def forward(self, x):
         xyz = self.xyz(x)
