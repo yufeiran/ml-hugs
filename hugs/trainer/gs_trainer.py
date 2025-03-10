@@ -17,6 +17,8 @@ from lpips import LPIPS
 from loguru import logger
 import matplotlib.pyplot as plt
 import torch.nn as nn
+from pytorch3d.structures import Meshes
+from pytorch3d.loss import point_mesh_distance
 
 from hugs.datasets.utils import (
     get_rotating_camera,
@@ -89,7 +91,7 @@ class GaussianTrainer():
         # get models
         self.human_gs, self.scene_gs = None, None
         
-        if cfg.mode in ['human', 'human_scene']:
+        if cfg.mode in ['human', 'human_scene','human_cloth']:
             if cfg.human.name == 'hugs_wo_trimlp':
                 self.human_gs = HUGS_WO_TRIMLP(
                     sh_degree=cfg.human.sh_degree, 
@@ -283,11 +285,8 @@ class GaussianTrainer():
         else:
             raise ValueError(f"Unknown background color {bg_color}")
         
-        if cfg.mode in ['human', 'human_scene']:
+        if cfg.mode in ['human', 'human_scene', 'human_cloth']:
             l = cfg.human.loss
-
-
-
 
             self.loss_fn = HumanSceneLoss(
                 l_ssim_w=l.ssim_w,
@@ -296,6 +295,7 @@ class GaussianTrainer():
                 l_lbs_w=l.lbs_w,
                 l_humansep_w=l.humansep_w,
                 l_clothsep_w=l.humansep_w, # FIX ME
+                l_geo_dist_w=l.geo_dist_w,
                 num_patches=l.num_patches,
                 patch_size=l.patch_size,
                 use_patches=l.use_patches,
@@ -310,7 +310,7 @@ class GaussianTrainer():
                 bg_color=self.bg_color,
             )
                 
-        if cfg.mode in ['human', 'human_scene']:
+        if cfg.mode in ['human', 'human_scene','human_cloth']:
             self.canon_camera_params = get_rotating_camera(
                 dist=5.0, img_size=512, 
                 nframes=cfg.human.canon_nframes, device='cuda',
@@ -375,7 +375,7 @@ class GaussianTrainer():
             bg_color = torch.rand(3, dtype=torch.float32, device="cuda")
             
             
-            if self.cfg.human.loss.humansep_w > 0.0 and render_mode == 'human_scene':
+            if self.cfg.human.loss.humansep_w > 0.0 and (render_mode == 'human_scene' or render_mode == 'human_cloth'):
                 render_human_separate = True
                 human_bg_color = torch.rand(3, dtype=torch.float32, device="cuda")
                 cloth_bg_color = torch.rand(3, dtype=torch.float32, device="cuda")
@@ -416,6 +416,8 @@ class GaussianTrainer():
                 lowerbody_gs_init_values=self.lowerbody_gs.init_values if self.lowerbody_gs else None,
                 cloth_bg_color=cloth_bg_color,
                 is_human_with_cloth_seprate=self.is_human_with_cloth_separate,
+                upperbody_gs_target_mesh=self.upperbody_gs.target_mesh if self.upperbody_gs else None,
+                lowerbody_gs_target_mesh=self.lowerbody_gs.target_mesh if self.lowerbody_gs else None,
             )
             
             loss.backward()
@@ -436,7 +438,11 @@ class GaussianTrainer():
 
                 pbar.set_postfix(postfix_dict)
                 pbar.update(10)
-            
+                print(f"ldistance_lowwerbody {loss_dict['ldistance_lowwerbody']} ldistance_upperbody {loss_dict['ldistance_upperbody']} ")
+                # if loss_dict['lnow_distance_upperbody'] exist
+                if 'lnow_distance_upperbody' in loss_dict and 'lnow_distance_lowwerbody' in loss_dict:
+                    print(f'lnow_distance_upperbody {loss_dict["lnow_distance_upperbody"]} lnow_distance_lowwerbody {loss_dict["lnow_distance_lowwerbody"]}')
+
             if t_iter % 500 == 0:
                 postfix_dict = {
                     # "#hp": f"{self.human_gs.n_gs/1000 if self.human_gs else 0:.1f}K",
@@ -510,7 +516,8 @@ class GaussianTrainer():
                     'gs_positions': upperbody_gs_out['xyz_canon'],
                     'gs_rotations': upperbody_gs_out['rotq_canon'],
                     'gs_scales': upperbody_gs_out['scales_canon'],
-                    'gs_sh_coeffs': upperbody_gs_out['shs'],
+                    # 'gs_sh_coeffs': upperbody_gs_out['shs'],
+                    'gs_rgb': upperbody_gs_out['rgb'],
                     'gs_opacity': upperbody_gs_out['opacity'],
                     'gs_active_sh_degree': upperbody_gs_out['active_sh_degree'],
                 }
@@ -560,6 +567,8 @@ class GaussianTrainer():
                     human_with_cloth_image = torchvision.transforms.ToPILImage()(human_with_cloth_image)
                     gt_human_with_colth_image = torchvision.transforms.ToPILImage()(gt_human_with_colth_image)
                     diff_human_with_cloth_image = torchvision.transforms.ToPILImage()(diff_human_with_cloth_image)
+
+
 
                     plt.figure(dpi=108, figsize=(24, 24))
                     #add title for iteration
@@ -632,8 +641,22 @@ class GaussianTrainer():
                     human_diff_image = human_mse_loss.unsqueeze(0)
                     human_diff_image = human_diff_image.repeat(3, 1, 1)
 
+
+                    if render_mode == 'human_cloth':
+                        human_cloth_gt = gt_img * mask + bg_color[:, None, None] * (1. - mask)
+                        human_cloth_pred = pred_img 
+                        human_cloth_diff = torch.abs(human_cloth_pred - human_cloth_gt)
+                        human_cloth_mse_loss = torch.mean(human_cloth_diff, dim=0)
+                        human_cloth_diff_image = human_cloth_mse_loss.unsqueeze(0)
+                        human_cloth_diff_image = human_cloth_diff_image.repeat(3, 1, 1)
+                        
+                        human_cloth_pred_img = torchvision.transforms.ToPILImage()(human_cloth_pred)
+                        gt_human_cloth_img = torchvision.transforms.ToPILImage()(human_cloth_gt)
+                        human_cloth_diff_image = torchvision.transforms.ToPILImage()(human_cloth_diff_image)
+
                     pred_img = torchvision.transforms.ToPILImage()(pred_img)
                     gt_img = torchvision.transforms.ToPILImage()(gt_img)
+
 
                     gt_upperbody_img = torchvision.transforms.ToPILImage()(gt_upperbody_img)
                     upperbody_img = torchvision.transforms.ToPILImage()(upperbody_img)
@@ -661,21 +684,32 @@ class GaussianTrainer():
                     # add time for each iteration
 
                     plt.text(0.5, 0.4, f'Time: {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())}', fontsize=16, ha='center')
-
-
-
                     plt.subplot(431)
-                    plt.imshow(pred_img)
-                    plt.axis('off')
-                    plt.title("Rendered Image")
-                    plt.subplot(432)
-                    plt.imshow(gt_img)
-                    plt.axis('off')
-                    plt.title("Ground Truth")
-                    plt.subplot(433)
-                    plt.imshow(diff_image_cpu)
-                    plt.axis('off')
-                    plt.title("Difference")
+
+                    if render_mode == 'human_cloth':
+                        plt.imshow(human_cloth_pred_img)
+                        plt.axis('off')
+                        plt.title("Human Cloth Image")
+                        plt.subplot(432)
+                        plt.imshow(gt_human_cloth_img)
+                        plt.axis('off')
+                        plt.title("Human Cloth Ground Truth")
+                        plt.subplot(433)
+                        plt.imshow(human_cloth_diff_image)
+                        plt.axis('off')
+                        plt.title("Human Cloth Difference")
+                    else:
+                        plt.imshow(pred_img)
+                        plt.axis('off')
+                        plt.title("Rendered Image")
+                        plt.subplot(432)
+                        plt.imshow(gt_img)
+                        plt.axis('off')
+                        plt.title("Ground Truth")
+                        plt.subplot(433)
+                        plt.imshow(diff_image_cpu)
+                        plt.axis('off')
+                        plt.title("Difference")
 
                     plt.subplot(434)
                     plt.imshow(human_img)
@@ -744,7 +778,7 @@ class GaussianTrainer():
                             iteration=(t_iter - self.cfg.scene.opt_start_iter) + 1,
                         )
                         
-            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 render_pkg['human_viewspace_points'] = render_pkg['viewspace_points'][:human_gs_out['xyz'].shape[0]]
                 render_pkg['human_viewspace_points'].grad = render_pkg['viewspace_points'].grad[:human_gs_out['xyz'].shape[0]]
                 with torch.no_grad():
@@ -756,7 +790,7 @@ class GaussianTrainer():
                         iteration=t_iter+1,
                     )
                     
-            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 with torch.no_grad():
                     self.upperbody_densification(
                         upperbody_gs_out=upperbody_gs_out,
@@ -766,7 +800,7 @@ class GaussianTrainer():
                         iteration=t_iter+1,
                     )
                     
-            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene']:
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.human.densify_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 with torch.no_grad():
                     self.lowerbody_densification(
                         lowerbody_gs_out=lowerbody_gs_out,
@@ -813,7 +847,7 @@ class GaussianTrainer():
                     save_ply(lowerbody_gs_out, f'{self.cfg.logdir}/meshes/lowerbody_{t_iter:06d}_splat.ply')
 
 
-                if self.cfg.mode in ['human', 'human_scene']:
+                if self.cfg.mode in ['human', 'human_scene','human_cloth']:
                     self.render_canonical(t_iter, nframes=self.cfg.human.canon_nframes)
 
             if t_iter % self.cfg.train.anim_interval == 0 and t_iter > 0 and self.cfg.train.anim_interval > 0:
@@ -822,14 +856,14 @@ class GaussianTrainer():
                 if self.anim_dataset is not None:
                     self.animate(t_iter)
                     
-                if self.cfg.mode in ['human', 'human_scene']:
+                if self.cfg.mode in ['human', 'human_scene','human_cloth']:
                     self.render_canonical(t_iter, nframes=self.cfg.human.canon_nframes)
             
             if t_iter % 1000 == 0 and t_iter > 0:
                 if self.human_gs: self.human_gs.oneupSHdegree()
                 if self.scene_gs: self.scene_gs.oneupSHdegree()
                 
-            if self.cfg.train.save_progress_images and t_iter % self.cfg.train.progress_save_interval == 0 and self.cfg.mode in ['human', 'human_scene']:
+            if self.cfg.train.save_progress_images and t_iter % self.cfg.train.progress_save_interval == 0 and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 self.render_canonical(t_iter, nframes=2, is_train_progress=True)
         
         # train progress images
@@ -909,7 +943,9 @@ class GaussianTrainer():
                 min_opacity=self.cfg.upperbody.prune_min_opacity, 
                 extent=self.cfg.upperbody.densify_extent, 
                 max_screen_size=size_threshold,
+                distance_threshold = self.cfg.upperbody.remove_gs_distance_threshold,
                 max_n_gs=self.cfg.upperbody.max_n_gaussians,
+                
             )
     def lowerbody_densification(self, lowerbody_gs_out, visibility_filter, radii, viewspace_point_tensor, iteration):
         self.lowerbody_gs.max_radii2D[visibility_filter] = torch.max(
@@ -927,6 +963,7 @@ class GaussianTrainer():
                 min_opacity=self.cfg.lowerbody.prune_min_opacity, 
                 extent=self.cfg.lowerbody.densify_extent, 
                 max_screen_size=size_threshold,
+                distance_threshold=self.cfg.lowerbody.remove_gs_distance_threshold,
                 max_n_gs=self.cfg.lowerbody.max_n_gaussians,
             )
     
@@ -1020,7 +1057,7 @@ class GaussianTrainer():
             torchvision.utils.save_image(log_img, imf)
             
             log_img = []
-            if self.cfg.mode in ['human', 'human_scene']:
+            if self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 bbox = data['bbox'].to(int)
                 cropped_gt_image = gt_image[:, bbox[0]:bbox[2], bbox[1]:bbox[3]]
                 cropped_image = image[:, bbox[0]:bbox[2], bbox[1]:bbox[3]]

@@ -6,7 +6,7 @@ import trimesh
 from scipy.spatial import KDTree
 import cv2
 
-SAVE_PATH = './results/smpl_uv_result/'
+SAVE_PATH = './results/smpl_uv_results/'
 
 def find_closest_surface_point(
     point: np.ndarray, 
@@ -481,14 +481,15 @@ def test_gs_projection_with_smpl_torch():
     
     # 使用适配器加载
     loader = GSLoader()
-    compatible_data = loader.load('./results/gs_data/gs_000500.pth')
+    compatible_data = loader.load('./results/gs_data/gs_000300.pth')
 
     gs_positions = compatible_data['gs_positions']
     gs_rotations = compatible_data['gs_rotations']
     gs_scales = compatible_data['gs_scales']
     gs_scales = torch.abs(gs_scales)  # 修正尺度
     
-    gs_sh_coeffs = compatible_data['gs_sh_coeffs']
+    # gs_sh_coeffs = compatible_data['gs_sh_coeffs']
+    gs_colors = compatible_data['gs_rgb']
     gs_opacity = compatible_data['gs_opacity']
     
     # 3. 运行投影函数（小尺寸UV图加速测试）
@@ -497,8 +498,8 @@ def test_gs_projection_with_smpl_torch():
         gs_positions=gs_positions,
         gs_rotations=gs_rotations,
         gs_scales=gs_scales,
-        # gs_colors=gs_colors,
-        gs_sh_coeffs=gs_sh_coeffs,
+        gs_colors=gs_colors,
+        # gs_sh_coeffs=gs_sh_coeffs,
         gs_opacity=gs_opacity,
         uv_size=(128, 128)  # 小尺寸加速测试
     )

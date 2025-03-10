@@ -9,6 +9,11 @@ from torch import nn
 from loguru import logger
 import torch.nn.functional as F
 from hugs.models.hugs_wo_trimlp import smpl_lbsmap_top_k, smpl_lbsweight_top_k
+from pytorch3d.structures import Meshes
+from pytorch3d.loss import point_mesh_distance
+from pytorch3d.loss.point_mesh_distance import point_face_distance
+from pytorch3d.structures import Pointclouds
+
 
 from hugs.utils.general import (
     inverse_sigmoid,
@@ -490,6 +495,7 @@ class ClothGS:
             global_orient=global_orient.unsqueeze(0),
             disable_posedirs=False,
             return_full_pose=True,
+            transl=transl.unsqueeze(0),
         )
 
         gt_lbs_weights = None
@@ -590,6 +596,7 @@ class ClothGS:
             'lbs_weights': lbs_weights,
             'posedirs': posedirs,
             'gt_lbs_weights': gt_lbs_weights,
+            'tailorNet_output': tailorNet_output,
         }
 
     def oneupSHdegree(self):
@@ -611,6 +618,9 @@ class ClothGS:
         self.canonical_offsets = tailor_net_output.shape_offsets + tailor_net_output.pose_offsets
         self.canonical_offsets = self.canonical_offsets[0].detach()
         self.vitruvian_verts = vitruvian_verts.detach()
+        
+        self.target_mesh = Meshes(verts= tailor_net_output.tailornet_v[None], faces= tailor_net_output.tailornet_f[None])
+        
         return vitruvian_verts.detach()
 
     @torch.no_grad()
@@ -908,7 +918,7 @@ class ClothGS:
 
         self.densification_postfix(new_xyz, new_scaling_multiplier, new_opacity_tmp, new_scales_tmp, new_rotmat_tmp)
 
-    def densify_and_prune(self, human_gs_out, max_grad, min_opacity, extent, max_screen_size, max_n_gs=None):
+    def densify_and_prune(self, human_gs_out, max_grad, min_opacity, extent, max_screen_size, distance_threshold, max_n_gs=None):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
@@ -923,10 +933,34 @@ class ClothGS:
             self.densify_and_split(grads, max_grad, extent)
 
         prune_mask = (self.opacity_tmp < min_opacity).squeeze()
+        
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.scales_tmp.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+        
+        # 计算在标准姿态下，点云到目标网格的距离，如果距离大于阈值，则将该点剔除
+        
+        pcls = Pointclouds(points=[self.get_xyz])
+            
+        points = pcls.points_packed()  # (P, 3)
+        tris = self.target_mesh.verts_packed()[self.target_mesh.faces_packed()]  # (T, 3, 3)
+        
+        dis_point_to_face = point_face_distance(
+            points,
+            pcls.cloud_to_packed_first_idx(),
+            tris,
+            self.target_mesh.mesh_to_faces_packed_first_idx(),
+            pcls.num_points_per_cloud().max().item(),
+            1e-8,
+        )  # 形状 (P,)
+        
+        distance_mask = dis_point_to_face > distance_threshold
+        
+
+        
+        prune_mask = torch.logical_or(prune_mask, distance_mask)
+        
         self.prune_points(prune_mask)
         self.n_gs = self.get_xyz.shape[0]
         torch.cuda.empty_cache()

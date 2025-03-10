@@ -78,7 +78,7 @@ def main(cfg):
         json.dump(trainer.eval_metrics, f, indent=4)
         
     # run animation
-    if cfg.mode in ['human', 'human_scene']:
+    if cfg.mode in ['human', 'human_scene','human_cloth']:
         trainer.animate()
         trainer.render_canonical(pose_type='a_pose')
         trainer.render_canonical(pose_type='da_pose')

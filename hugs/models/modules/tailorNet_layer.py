@@ -15,6 +15,7 @@ import torch.nn as nn
 from dataclasses import dataclass
 from collections import namedtuple
 from typing import Optional, Dict, Union
+from hugs.cfg.constants import SMPL_PATH
 
 from smplx.lbs import (
     batch_rodrigues,
@@ -31,6 +32,13 @@ from smplx.utils import (
 from smplx.vertex_ids import vertex_ids as VERTEX_IDS
 from smplx.vertex_joint_selector import VertexJointSelector
 from TailorNet import tailornet
+
+from smplx.lbs import (
+    batch_rodrigues, 
+    blend_shapes, 
+    vertices2joints,
+    batch_rigid_transform
+    )
 
 from .lbs import lbs_extra, lbs
 
@@ -499,7 +507,9 @@ class TailorNet_Layer(nn.Module):
             disable_posedirs=disable_posedirs,
         )
 
-        cloth_verts, cloth_faces = self.tailorNet.run(full_pose,betas)
+        cloth_verts, cloth_faces = self.tailorNet.run(theta=full_pose, beta=betas, transl=transl)
+        
+
 
         joints = self.vertex_joint_selector(vertices, joints)
         # Map the joints to the current dataset
@@ -533,3 +543,15 @@ class TailorNet_Layer(nn.Module):
         return output
 
 
+if __name__ == '__main__':
+    
+    # Test TailorNet_Layer
+    
+    grament_class = 'skirt'
+
+    tailorNet_layer = TailorNet_Layer(grament_class,SMPL_PATH)
+    
+    
+    output = tailorNet_layer.forward()
+    
+    pass

@@ -1,7 +1,7 @@
 seed: 0
-mode: human
+mode: human_cloth
 output_path: /mnt/data1/yu/data/ml-hugs/output
-exp_name: 20240303_1758_release_test
+exp_name: human_cloth
 dataset_path: ''
 detect_anomaly: false
 debug: false
@@ -10,7 +10,7 @@ eval: false
 bg_color: white
 dataset:
   name: neuman
-  seq: ["citron", "seattle", "bike", "lab", "jogging", "parkinglot"]
+  seq: ["lab", "citron", "seattle", "bike", "jogging", "parkinglot"]
 train:
   batch_size: 1
   num_workers: 0
@@ -75,7 +75,7 @@ human:
     l1_w: 0.8
     lpips_w: 1.0
     lbs_w: 1000.0
-    humansep_w: 0.0
+    humansep_w: 1.0
     num_patches: 4
     patch_size: 128
     use_patches: 1
