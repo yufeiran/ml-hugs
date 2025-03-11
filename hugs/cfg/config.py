@@ -114,11 +114,12 @@ cfg.human.loss.ssim_w = 0.2
 cfg.human.loss.l1_w = 0.8
 cfg.human.loss.lpips_w = 1.0
 cfg.human.loss.lbs_w = 0.0
-cfg.human.loss.humansep_w = 0.0
+cfg.human.loss.humansep_w = 1
+cfg.human.loss.clothsep_w = 1
 cfg.human.loss.num_patches = 4
 cfg.human.loss.patch_size = 128
 cfg.human.loss.use_patches = 1
-cfg.human.loss.geo_dist_w = 20_000.0
+cfg.human.loss.geo_dist_w = 20_00.0
 
 # human model densification configuration
 cfg.human.densification_interval = 100
@@ -141,7 +142,7 @@ cfg.upperbody.densify_grad_threshold = 0.0002
 cfg.upperbody.prune_min_opacity = 0.005
 cfg.upperbody.densify_extent = 2.0
 cfg.upperbody.max_n_gaussians = 2e5 / 3
-cfg.upperbody.remove_gs_distance_threshold = 0.5
+cfg.upperbody.remove_gs_distance_threshold = 1
 
 
 # lowerbody model configuration
@@ -154,7 +155,7 @@ cfg.lowerbody.densify_grad_threshold = 0.0002
 cfg.lowerbody.prune_min_opacity = 0.005
 cfg.lowerbody.densify_extent = 2.0
 cfg.lowerbody.max_n_gaussians = 2e5 / 3
-cfg.lowerbody.remove_gs_distance_threshold = 0.5
+cfg.lowerbody.remove_gs_distance_threshold = 1
 
 # scene model configuration
 cfg.scene = OmegaConf.create()

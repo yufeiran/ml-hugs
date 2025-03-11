@@ -75,7 +75,8 @@ human:
     l1_w: 0.8
     lpips_w: 1.0
     lbs_w: 1000.0
-    humansep_w: 1.0
+    humansep_w: 1
+    clothsep_w: 1
     num_patches: 4
     patch_size: 128
     use_patches: 1

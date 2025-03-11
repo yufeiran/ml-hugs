@@ -294,7 +294,7 @@ class GaussianTrainer():
                 l_lpips_w=l.lpips_w,
                 l_lbs_w=l.lbs_w,
                 l_humansep_w=l.humansep_w,
-                l_clothsep_w=l.humansep_w, # FIX ME
+                l_clothsep_w=l.clothsep_w, # FIX ME
                 l_geo_dist_w=l.geo_dist_w,
                 num_patches=l.num_patches,
                 patch_size=l.patch_size,

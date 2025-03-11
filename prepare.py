@@ -1,6 +1,8 @@
 import os
 import sys
 import numpy as np
+import glob
+import cv2
 from tqdm import tqdm
 
 sys.path.append('.')
@@ -8,6 +10,12 @@ sys.path.append('.')
 from segmentation import ClothSegemntation
 from TailorNet import TailorNet
 from hugs.cfg.constants import *
+from segment_anything import SamPredictor, sam_model_registry
+from scipy.ndimage import label, sum as ndi_sum
+
+CHECKPOINT = os.path.expanduser("~/project/segment-anything/ckpts/sam_vit_h_4b8939.pth")
+MODEL = "vit_h"
+
 
 def mocap_path(scene_name):
     # ./data/MoSh/MPI_mosh/50027/misc_dancing_hiphop_poses.npz
@@ -34,10 +42,39 @@ def mocap_path(scene_name):
         return './data/SFU/0008/0008_ChaCha001_poses.npz', 0, 1000, 4
     else:
         raise ValueError('Define new elif branch')
+    
+def remove_small_objects(mask, min_size):
+    # 连通域标记
+    labeled_mask, num_features = label(mask)
+    
+    # 计算每个连通域的大小
+    sizes = ndi_sum(mask, labeled_mask, index=np.arange(1, num_features + 1))
+    
+    # 保留面积大于等于 min_size 的连通域
+    valid_labels = np.where(sizes >= min_size)[0] + 1  # 标签从1开始
+    cleaned_mask = np.isin(labeled_mask, valid_labels).astype(np.uint8)
+    
+    return cleaned_mask
+
+def calculateBoundingBox(mask):
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+
+    # 如果 mask 全为 0，返回空的包围盒
+    if not np.any(rows) or not np.any(cols):
+        return np.array([0, 0, 0, 0])
+
+    # 找到非零值在行和列的范围
+    y_min, y_max = np.where(rows)[0][[0, -1]]
+    x_min, x_max = np.where(cols)[0][[0, -1]]
+    
+    # 返回包围盒的坐标 [x_min, y_min, x_max, y_max] 作为 np.ndarray
+    return np.array([x_min, y_min, x_max + 1, y_max + 1])
+
 
 if __name__=='__main__':
 
-    seq = 'jogging'
+    seq = 'bike'
 
     neu_data_path = "/mnt/data1/yu/data/ml-hugs/dataset/neuman/dataset/"
 
@@ -61,16 +98,132 @@ if __name__=='__main__':
         'betas': betas[None].repeat(poses.shape[0], 0)[:, :10],
     }
 
-
-
-
-
     #tailorNet.run_demo()
-
+    
+    sam = sam_model_registry[MODEL](checkpoint=CHECKPOINT)
+    sam.to("cuda")
+    predictor = SamPredictor(sam)
 
     image_dir = neu_data_path+seq+"/images"
     human_segmented_image_dir = neu_data_path+seq+"/segmentations"
+    keypoints_dir = neu_data_path+seq+"/keypoints"
     result_dir = neu_data_path+seq+"/cloth_segmented_images"
+    
+    upperbody_img_path = os.path.join(result_dir,"upperbody")
+    lowerbody_img_path = os.path.join(result_dir,"lowerbody")
+    humanbody_img_path = os.path.join(result_dir,"humanbody")
+    
+    
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    if not os.path.exists(upperbody_img_path):
+        os.makedirs(upperbody_img_path)
+    if not os.path.exists(lowerbody_img_path):
+        os.makedirs(lowerbody_img_path)
+    if not os.path.exists(humanbody_img_path):
+        os.makedirs(humanbody_img_path)
+        
+    image_list = os.listdir(image_dir)
+    
+    img_lists = sorted(glob.glob(f"{image_dir}/*.png"))
+    
+    pbar = tqdm(total=len(image_list))
+    
+    clothSegemntation = ClothSegemntation() 
+    
+    for image_name in img_lists:
+
+        # get basename of image
+        basename = os.path.basename(image_name)
+
+        # get segemnt mask of human in human_segmented_image_dir and same name as image
+        human_mask = cv2.imread(os.path.join(human_segmented_image_dir,basename))
+
+        # make human mask in one channel
+        human_mask = human_mask[:,:,0]
+
+        img = cv2.imread(image_name)
+        predictor.set_image(img)
+        
+        pbar.update(1)
+        upperbody_mask,lowerbody_mask= clothSegemntation.inferOne(image_name)
+        
+        upperbody_mask = remove_small_objects(upperbody_mask, 1000)
+        upperbody_box = calculateBoundingBox(upperbody_mask)
+        
+        lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
+        lowerbody_box = calculateBoundingBox(lowerbody_mask)
+        
+        upperbody_mask, _, _ = predictor.predict(box=upperbody_box)
+        upperbody_mask = upperbody_mask.sum(axis=0) > 0
+        upperbody_mask = remove_small_objects(upperbody_mask, 1000)
+        
+        # get file name without extension
+        img_name = os.path.basename(image_name).split(".")[0]
+
+        upperbody_mask_name = img_name +"_upperbody_mask" + ".png"
+        # save file name 
+        save_name = os.path.join(upperbody_img_path,upperbody_mask_name)
+        cv2.imwrite(save_name, upperbody_mask * 255)
+
+        # # make cloth mask in bool
+        # upperbody_mask = upperbody_mask.astype(np.bool)
+
+        # upperbody_mask_img = cv2.imread(image_name)
+        # upperbody_mask_img[~upperbody_mask] = 0
+
+        # # draw box in img
+        # # cv2.rectangle(img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+        # cv2.imwrite(fn.replace("images", "cloth_masked_sam_images/upperbody"), upperbody_mask_img)
+        
+        lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box)
+        lowerbody_mask = lowerbody_mask.sum(axis=0) > 0
+        lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
+        # draw box in cloth_mask in tensor
+
+        lowerbody_mask_name = img_name +"_lowerbody_mask" + ".png"
+        # save file name
+        save_name = os.path.join(lowerbody_img_path,lowerbody_mask_name)
+        cv2.imwrite(save_name, lowerbody_mask * 255)
+        
+        # # make cloth mask in bool
+        # lowwerbody_mask = lowwerbody_mask.astype(np.bool)
+        
+        # lowwerbody_mask_img = cv2.imread(fn)
+        # lowwerbody_mask_img[~lowwerbody_mask] = 0
+        
+        # # draw box in img
+        # # cv2.rectangle(img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+        
+        # cv2.imwrite(fn.replace("images", "cloth_masked_sam_images/lowerbody"), lowwerbody_mask_img)
+
+        # humanbody_mask = human_mask - upperbody_mask - lowwerbody_mask
+        # need bitwise_and to get the intersection of two masks
+
+        upperbody_mask = upperbody_mask.astype(np.bool_)
+        lowerbody_mask = lowerbody_mask.astype(np.bool_)
+        human_mask = human_mask.astype(np.bool_)
+
+        upperbody_mask = ~upperbody_mask
+        lowerbody_mask = ~lowerbody_mask
+        human_mask = ~human_mask
+        humanbody_mask = human_mask & upperbody_mask & lowerbody_mask
+
+        humanbody_mask_name = img_name +"_humanbody_mask" + ".png"
+        # save file name
+        save_name = os.path.join(humanbody_img_path,humanbody_mask_name)
+
+        # make humanbody_mask in 0 and 255
+        humanbody_mask = humanbody_mask.astype(np.uint8) * 255
+
+        remove_small_objects(humanbody_mask, 1000)
+
+        cv2.imwrite(save_name, humanbody_mask)
+        
+
+    
+    
+    
 
     need_to_run_cloth_segmentation = True
     if need_to_run_cloth_segmentation:

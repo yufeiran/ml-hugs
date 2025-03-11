@@ -426,7 +426,7 @@ class HUGS_TRIMLP:
 
         gs_opacity = appearance_out['opacity']
         # make gs_opacity to 1
-        gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
+        # gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
         gs_rgb = appearance_out['rgb'].reshape(-1, 3)
         
