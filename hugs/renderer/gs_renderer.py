@@ -30,14 +30,18 @@ def render_human_scene(
     lowerbody_gs_out =None,
     cloth_bg_color=None,
     render_cloth_separate=True,
+    use_sh=True,
 ):
+    
+    
 
     feats = None
     if render_mode == 'human_scene':
         # cat human \upperbody_gs\ lowerbody_gs scene Gaussians
-
-
-        feats = torch.cat([human_gs_out['rgb'], upperbody_gs_out['rgb'],lowerbody_gs_out['rgb'],scene_gs_out['shs']], dim=0)
+        if use_sh:
+            feats = torch.cat([human_gs_out['shs'], upperbody_gs_out['shs'],lowerbody_gs_out['shs'], scene_gs_out['shs']], dim=0)
+        else:
+            feats = torch.cat([human_gs_out['rgb'], upperbody_gs_out['rgb'],lowerbody_gs_out['rgb'],scene_gs_out['shs']], dim=0)
         means3D = torch.cat([human_gs_out['xyz'],upperbody_gs_out['xyz'],lowerbody_gs_out['xyz'], scene_gs_out['xyz']], dim=0)
         opacity = torch.cat([human_gs_out['opacity'],upperbody_gs_out['opacity'],lowerbody_gs_out['opacity'], scene_gs_out['opacity']], dim=0)
         scales = torch.cat([human_gs_out['scales'],upperbody_gs_out['scales'],lowerbody_gs_out['scales'], scene_gs_out['scales']], dim=0)
@@ -46,7 +50,10 @@ def render_human_scene(
     elif render_mode == 'human_cloth':
 
         # cat human \upperbody_gs\ lowerbody_gs Gaussians
-        feats = torch.cat([human_gs_out['rgb'], upperbody_gs_out['rgb'],lowerbody_gs_out['rgb']], dim=0)
+        if use_sh:
+            feats = torch.cat([human_gs_out['shs'], upperbody_gs_out['shs'],lowerbody_gs_out['shs']], dim=0)
+        else:
+            feats = torch.cat([human_gs_out['rgb'], upperbody_gs_out['rgb'],lowerbody_gs_out['rgb']], dim=0)
         means3D = torch.cat([human_gs_out['xyz'],upperbody_gs_out['xyz'],lowerbody_gs_out['xyz']], dim=0)
         opacity = torch.cat([human_gs_out['opacity'],upperbody_gs_out['opacity'],lowerbody_gs_out['opacity']], dim=0)
         scales = torch.cat([human_gs_out['scales'],upperbody_gs_out['scales'],lowerbody_gs_out['scales']], dim=0)
@@ -54,7 +61,10 @@ def render_human_scene(
         active_sh_degree = human_gs_out['active_sh_degree']
 
     elif render_mode == 'human':
-        feats = human_gs_out['rgb']
+        if use_sh:
+            feats = human_gs_out['shs']
+        else:
+            feats = human_gs_out['rgb']
         means3D = human_gs_out['xyz']
         opacity = human_gs_out['opacity']
         scales = human_gs_out['scales']
@@ -68,15 +78,20 @@ def render_human_scene(
         rotations = scene_gs_out['rotq']
         active_sh_degree = scene_gs_out['active_sh_degree']
     elif render_mode == 'upperbody':
-        # feats = upperbody_gs_out['shs']
-        feats = upperbody_gs_out['rgb']
+        if use_sh:
+            feats = upperbody_gs_out['shs']
+        else:
+            feats = upperbody_gs_out['rgb']
         means3D = upperbody_gs_out['xyz']
         opacity = upperbody_gs_out['opacity']
         scales = upperbody_gs_out['scales']
         rotations = upperbody_gs_out['rotq']
         active_sh_degree = upperbody_gs_out['active_sh_degree']
     elif render_mode == 'lowerbody':
-        feats = lowerbody_gs_out['rgb']
+        if use_sh:
+            feats = lowerbody_gs_out['shs']
+        else:
+            feats = lowerbody_gs_out['rgb']
         means3D = lowerbody_gs_out['xyz']
         opacity = lowerbody_gs_out['opacity']
         scales = lowerbody_gs_out['scales']
@@ -127,7 +142,7 @@ def render_human_scene(
     if render_human_separate and render_cloth_separate is True and (render_mode == 'human_scene' or render_mode == 'human_cloth'):
         render_human_pkg = render(
             means3D=human_gs_out['xyz'],
-            feats=human_gs_out['rgb'],
+            feats= human_gs_out['rgb'] if use_sh is False else human_gs_out['shs'],
             opacity=human_gs_out['opacity'],
             scales=human_gs_out['scales'],
             rotations=human_gs_out['rotq'],
@@ -143,7 +158,7 @@ def render_human_scene(
     if upperbody_gs_out != None and render_cloth_separate and (render_mode == 'human_scene' or render_mode == 'human_cloth'):
         render_cloth_pkg = render(
             means3D=upperbody_gs_out['xyz'],
-            feats=upperbody_gs_out['rgb'],
+            feats=upperbody_gs_out['rgb'] if use_sh is False else upperbody_gs_out['shs'],
             opacity=upperbody_gs_out['opacity'],
             scales=upperbody_gs_out['scales'],
             rotations=upperbody_gs_out['rotq'],
@@ -160,7 +175,7 @@ def render_human_scene(
     if lowerbody_gs_out != None and render_cloth_separate and (render_mode == 'human_scene' or render_mode == 'human_cloth'):
         render_cloth_pkg = render(
             means3D=lowerbody_gs_out['xyz'],
-            feats=lowerbody_gs_out['rgb'],
+            feats=lowerbody_gs_out['rgb'] if use_sh is False else lowerbody_gs_out['shs'],
             opacity=lowerbody_gs_out['opacity'],
             scales=lowerbody_gs_out['scales'],
             rotations=lowerbody_gs_out['rotq'],

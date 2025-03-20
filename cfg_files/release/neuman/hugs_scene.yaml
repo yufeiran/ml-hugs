@@ -1,6 +1,6 @@
 seed: 0
 mode: scene
-output_path: /mnt/data1/yu/data/ml-hugs/output
+output_path: /mnt/data1/yu/data/ClothGS/output
 exp_name: 20240303_1758_release_test
 dataset_path: ''
 detect_anomaly: false

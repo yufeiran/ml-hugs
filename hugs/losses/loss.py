@@ -261,6 +261,11 @@ class HumanSceneLoss(nn.Module):
             pred_lowerbody_img = render_pkg['lowerbody_img']
             gt_lowerbody_image = gt_image * lowerbody_mask + cloth_bg_color[:, None, None] * (1 - lowerbody_mask)
 
+            # # 使用lowerbody_mask，只计算lowerbody_mask区域的loss
+            # lowerbody_mask_bool = lowerbody_mask.bool().repeat(3, 1, 1)
+            # pred_lowerbody_img_masked = pred_lowerbody_img[lowerbody_mask_bool].view(3, -1)
+            # gt_lowerbody_image_masked = gt_lowerbody_image[lowerbody_mask_bool].view(3, -1)
+
             Ll1_lowerbody = l1_loss(pred_lowerbody_img, gt_lowerbody_image, lowerbody_mask)
             loss_dict['Ll1_lowerbody'] = self.l_l1_w * Ll1_lowerbody * self.l_clothsep_w
 
@@ -328,7 +333,7 @@ class HumanSceneLoss(nn.Module):
         if is_human_with_cloth_seprate is False and self.l_clothsep_w > 0.0 and (render_mode == "human_scene" or render_mode == 'human_cloth'):
             pred_human_with_cloth_img = render_pkg['human_with_cloth_img']
             gt_human_with_cloth_image = gt_image * mask + human_bg_color[:, None, None] * (1 - mask)
-
+            
             Ll1_human_with_cloth = l1_loss(pred_human_with_cloth_img, gt_human_with_cloth_image, mask)
             loss_dict['Ll1_human_with_cloth'] = self.l_l1_w * Ll1_human_with_cloth * self.l_clothsep_w
 

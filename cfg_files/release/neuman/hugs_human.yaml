@@ -1,6 +1,6 @@
 seed: 0
 mode: human_cloth
-output_path: /mnt/data1/yu/data/ml-hugs/output
+output_path: /mnt/data1/yu/data/ClothGS/output
 exp_name: human_cloth
 dataset_path: ''
 detect_anomaly: false
@@ -75,13 +75,14 @@ human:
     l1_w: 0.8
     lpips_w: 1.0
     lbs_w: 1000.0
-    humansep_w: 1.0
+    humansep_w: 0.8
+    clothsep_w: 0.8
     num_patches: 4
     patch_size: 128
     use_patches: 1
   densification_interval: 600
   opacity_reset_interval: 3000
-  densify_from_iter: 3000
+  densify_from_iter: 500
   densify_until_iter: 15000
   densify_grad_threshold: 0.0002
   prune_min_opacity: 0.005

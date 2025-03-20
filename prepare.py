@@ -74,9 +74,9 @@ def calculateBoundingBox(mask):
 
 if __name__=='__main__':
 
-    seq = 'bike'
+    seq = 'seattle'
 
-    neu_data_path = "/mnt/data1/yu/data/ml-hugs/dataset/neuman/dataset/"
+    neu_data_path = "/mnt/data1/yu/data/ClothGS/dataset/neuman/dataset/"
 
     load_smpl_path = neu_data_path+seq+"/4d_humans/smpl_optimized_aligned_scale.npz"
 
@@ -164,6 +164,9 @@ if __name__=='__main__':
         upperbody_mask_name = img_name +"_upperbody_mask" + ".png"
         # save file name 
         save_name = os.path.join(upperbody_img_path,upperbody_mask_name)
+        upperbody_mask = upperbody_mask.astype(np.bool_)
+        upperbody_mask = ~upperbody_mask
+        upperbody_mask = upperbody_mask.astype(np.int8)
         cv2.imwrite(save_name, upperbody_mask * 255)
 
         # # make cloth mask in bool
@@ -180,7 +183,9 @@ if __name__=='__main__':
         lowerbody_mask = lowerbody_mask.sum(axis=0) > 0
         lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
         # draw box in cloth_mask in tensor
-
+        lowerbody_mask = lowerbody_mask.astype(np.bool_)
+        lowerbody_mask = ~lowerbody_mask
+        lowerbody_mask = lowerbody_mask.astype(np.int8)
         lowerbody_mask_name = img_name +"_lowerbody_mask" + ".png"
         # save file name
         save_name = os.path.join(lowerbody_img_path,lowerbody_mask_name)
@@ -204,8 +209,8 @@ if __name__=='__main__':
         lowerbody_mask = lowerbody_mask.astype(np.bool_)
         human_mask = human_mask.astype(np.bool_)
 
-        upperbody_mask = ~upperbody_mask
-        lowerbody_mask = ~lowerbody_mask
+        
+        
         human_mask = ~human_mask
         humanbody_mask = human_mask & upperbody_mask & lowerbody_mask
 
@@ -214,9 +219,13 @@ if __name__=='__main__':
         save_name = os.path.join(humanbody_img_path,humanbody_mask_name)
 
         # make humanbody_mask in 0 and 255
-        humanbody_mask = humanbody_mask.astype(np.uint8) * 255
+
 
         remove_small_objects(humanbody_mask, 1000)
+
+        humanbody_mask = ~humanbody_mask
+
+        humanbody_mask = humanbody_mask.astype(np.uint8) * 255
 
         cv2.imwrite(save_name, humanbody_mask)
         
@@ -225,12 +234,12 @@ if __name__=='__main__':
     
     
 
-    need_to_run_cloth_segmentation = True
+    need_to_run_cloth_segmentation = False
     if need_to_run_cloth_segmentation:
         clothSegemntation = ClothSegemntation(image_dir, result_dir,human_segmented_image_dir)
         clothSegemntation.infer()
 
-    need_to_run_tailornet = True
+    need_to_run_tailornet = False
     if need_to_run_tailornet:
         tailorNet = TailorNet('male','t-shirt')
         tailorNet.out_path = os.path.join(os.getcwd(),"cloth_mesh_output")

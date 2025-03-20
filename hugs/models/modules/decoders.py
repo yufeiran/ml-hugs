@@ -87,7 +87,7 @@ class DeformationDecoder(torch.nn.Module):
     
 
 class GeometryDecoder(torch.nn.Module):
-    def __init__(self, n_features, use_surface=False, hidden_dim=128, act='gelu'):
+    def __init__(self, n_features, use_surface=False, hidden_dim=128, act='gelu',scale_dim=1):
         super().__init__()
         self.hidden_dim = hidden_dim
         
@@ -100,7 +100,7 @@ class GeometryDecoder(torch.nn.Module):
         self.xyz = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 3))
         self.rotations = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 6))
         # self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 2 if use_surface else 3))
-        self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, 1))
+        self.scales = nn.Sequential(self.net, nn.Linear(self.hidden_dim, scale_dim))
         
     def forward(self, x):
         xyz = self.xyz(x)

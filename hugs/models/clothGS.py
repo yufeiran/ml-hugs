@@ -13,6 +13,7 @@ from pytorch3d.structures import Meshes
 from pytorch3d.loss import point_mesh_distance
 from pytorch3d.loss.point_mesh_distance import point_face_distance
 from pytorch3d.structures import Pointclouds
+import numpy as np
 
 
 from hugs.utils.general import (
@@ -33,6 +34,7 @@ from hugs.utils.rotations import (
 )
 from hugs.cfg.constants import SMPL_PATH
 from hugs.utils.subdivide_smpl import subdivide_smpl_model
+from hugs.utils.compute_local_frame import compute_all_local_frames
 
 from .modules.lbs import lbs_extra
 from .modules.smpl_layer import SMPL
@@ -40,6 +42,8 @@ from .modules.triplane import TriPlane
 from .modules.decoders import AppearanceDecoder, DeformationDecoder, GeometryDecoder
 
 from .modules.tailorNet_layer import TailorNet_Layer
+
+
 
 SCALE_Z = 1e-5
 
@@ -66,6 +70,7 @@ class ClothGS:
     def __init__(
             self,
             garment_class: str,
+            gender: str,
             sh_degree: int,
             only_rgb: bool = False,
             n_subdivision: int = 0,
@@ -110,7 +115,7 @@ class ClothGS:
         self.appearance_dec = AppearanceDecoder(n_features=n_features * 3).to('cuda')
         self.deformation_dec = DeformationDecoder(n_features=n_features * 3,
                                                   disable_posedirs=disable_posedirs).to('cuda')
-        self.geometry_dec = GeometryDecoder(n_features=n_features * 3, use_surface=use_surface).to('cuda')
+        self.geometry_dec = GeometryDecoder(n_features=n_features * 3, use_surface=use_surface,scale_dim=2).to('cuda')
 
         if n_subdivision > 0:
             logger.info(f"Subdividing SMPL model {n_subdivision} times")
@@ -130,7 +135,7 @@ class ClothGS:
         ).edges_unique
         self.edges = torch.from_numpy(edges).to(self.device).long()
 
-        self.tailorNet_layer = TailorNet_Layer(garment_class,SMPL_PATH).to(self.device)
+        self.tailorNet_layer = TailorNet_Layer(garment_class,SMPL_PATH,gender).to(self.device)
 
         self.init_values = {}
         self.get_vitruvian_verts()
@@ -225,6 +230,11 @@ class ClothGS:
         # FIXME
         # gs_scales = geometry_out['scales'] * self.scaling_multiplier
         gs_scales = geometry_out['scales']
+        
+        # gs_scales 原本是 [N,2]的，现在改成[N,3]的，其中第三个维度的计算为 系数乘以前两个维度的最小值
+        # 比如 gs_scales[0] = [1,2] -> gs_scales[0] = [1,2,0.5] 
+        scale_factor = 0.0001
+        gs_scales = torch.cat([gs_scales,torch.min(gs_scales,dim=1)[0].unsqueeze(1)*scale_factor],dim=1)
 
         gs_opacity = appearance_out['opacity']
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
@@ -410,6 +420,7 @@ class ClothGS:
 
     def forward(
             self,
+            iter_num,
             global_orient=None,
             body_pose=None,
             betas=None,
@@ -428,20 +439,36 @@ class ClothGS:
         gs_rot6d = geometry_out['rotations']
         
         gs_scales = geometry_out['scales'] * self.scaling_multiplier
-        gs_scales = gs_scales.repeat(1, 3)  # 3 scales for each vertex
+
+        # gs_scales = torch.clamp(gs_scales, max=2 * torch.mean(gs_scales))
+
+        # gs_scales = gs_scales.repeat(1, 3)  # 3 scales for each vertex
+        
+                # gs_scales 原本是 [N,2]的，现在改成[N,3]的，其中第三个维度的计算为 系数乘以前两个维度的最小值
+        # 比如 gs_scales[0] = [1,2] -> gs_scales[0] = [1,2,0.5] 
+        scale_factor = 0.0001
+        gs_scales = torch.cat([gs_scales,torch.min(gs_scales,dim=1)[0].unsqueeze(1)*scale_factor],dim=1)
+
 
         gs_xyz = self.get_xyz + xyz_offsets
 
         gs_rotmat = rotation_6d_to_matrix(gs_rot6d)
-        
-        # make gs_rotmat to identity
-        gs_rotmat = torch.eye(3).repeat(gs_rotmat.shape[0], 1, 1).to('cuda')
+         
+        # # make gs_rotmat to identity
+        # gs_rotmat = torch.eye(3).repeat(gs_rotmat.shape[0], 1, 1).to('cuda')
         
         gs_rotq = matrix_to_quaternion(gs_rotmat)
 
+        if iter_num is None:
+            iter_num = 3000
+
+
         gs_opacity = appearance_out['opacity']
-        # make gs_opacity to 1
-        gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
+        
+        # if iter_num < 1000 or iter_num > 2000:
+        # # make gs_opacity to 1
+        #     gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
+        # gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
         
         gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
         
@@ -643,6 +670,60 @@ class ClothGS:
     def eval(self):
         pass
 
+    def add_gs_point_in_triangle(self,n, verts, faces, scales,rotmats, lbs_weights ):
+        # 现在在mesh顶点上生成了GS点属性,现在需要在三角形内随机生成n个gs点，同时插值scales和rotmats、lbs_weights
+        
+        mesh = trimesh.Trimesh(vertices=verts.detach().cpu().numpy(), faces=faces.cpu().numpy())
+        edges = mesh.edges_unique
+        self.edges = torch.from_numpy(edges).to(self.device).long()
+        
+        gs_xyzs = []
+        gs_scales = []
+        gs_rotmats = []
+        gs_lbs_weights = []
+        
+        for f in range(faces.shape[0]):
+            face = faces[f]
+            v1 = verts[face[0]]
+            v2 = verts[face[1]]
+            v3 = verts[face[2]]
+            scale1 = scales[face[0]]
+            scale2 = scales[face[1]]
+            scale3 = scales[face[2]]
+            rotmat1 = rotmats[face[0]]
+            rotmat2 = rotmats[face[1]]
+            rotmat3 = rotmats[face[2]]
+            lbs_weight1 = lbs_weights[face[0]]
+            lbs_weight2 = lbs_weights[face[1]]
+            lbs_weight3 = lbs_weights[face[2]]
+            
+            for i in range(n):
+                
+                # 生成重心坐标,r1+r2+r3=1
+                r1 = np.random.rand()
+                r2 = np.random.rand()
+                r3 = np.random.rand()
+                r1 = r1 / (r1 + r2 + r3)
+                r2 = r2 / (r1 + r2 + r3)
+                r3 = r3 / (r1 + r2 + r3)
+
+                    
+                gs_xyz = r1 * v1 + r2 * v2 + r3 * v3
+                gs_scale = r1 * scale1 + r2 * scale2 + r3 * scale3
+                gs_scale *= 1/(n * n)
+                gs_rotmat = r1 * rotmat1 + r2 * rotmat2 + r3 * rotmat3
+                gs_lbs_weight = r1 * lbs_weight1 + r2 * lbs_weight2 + r3 * lbs_weight3
+                
+                gs_xyzs.append(gs_xyz)
+                gs_scales.append(gs_scale)
+                gs_rotmats.append(gs_rotmat)
+                gs_lbs_weights.append(gs_lbs_weight)
+
+                
+
+        return gs_xyzs, gs_scales, gs_rotmats, gs_lbs_weights
+
+
     def initialize(self):
         t_pose_verts,cloth_t_pose_verts,cloth_faces = self.get_vitruvian_verts_template()
         cloth_t_pose_verts = cloth_t_pose_verts.float()
@@ -664,27 +745,27 @@ class ClothGS:
         mesh = trimesh.Trimesh(vertices=t_pose_verts.detach().cpu().numpy(), faces=cloth_faces.cpu().numpy())
         edges = mesh.edges_unique
         self.edges = torch.from_numpy(edges).to(self.device).long()
-        for v in range(t_pose_verts.shape[0]):
-            selected_edges = torch.any(self.edges == v, dim=-1)
-            selected_edges_len = torch.norm(
-                t_pose_verts[self.edges[selected_edges][0]] - t_pose_verts[self.edges[selected_edges][1]],
-                dim=-1
-            )
-            selected_edges_len *= self.init_scale_multiplier
-            scales[v, 0] = torch.log(torch.max(selected_edges_len))
-            scales[v, 1] = torch.log(torch.max(selected_edges_len))
+        # for v in range(t_pose_verts.shape[0]):
+        #     selected_edges = torch.any(self.edges == v, dim=-1)
+        #     selected_edges_len = torch.norm(
+        #         t_pose_verts[self.edges[selected_edges][0]] - t_pose_verts[self.edges[selected_edges][1]],
+        #         dim=-1
+        #     )
+        #     selected_edges_len *= self.init_scale_multiplier
+        #     scales[v, 0] = torch.log(torch.max(selected_edges_len))
+        #     scales[v, 1] = torch.log(torch.max(selected_edges_len))
 
-            if not self.use_surface:
-                scales[v, 2] = torch.log(torch.max(selected_edges_len))
+        #     if not self.use_surface:
+        #         scales[v, 2] = torch.log(torch.max(selected_edges_len))
 
-        if self.use_surface or self.init_2d:
-            scales = scales[..., :2]
+        # if self.use_surface or self.init_2d:
+        #     scales = scales[..., :2]
 
-        scales = torch.exp(scales)
+        # scales = torch.exp(scales)
 
-        if self.use_surface or self.init_2d:
-            scale_z = torch.ones_like(scales[:, -1:]) * SCALE_Z
-            scales = torch.cat([scales, scale_z], dim=-1)
+        # if self.use_surface or self.init_2d:
+        #     scale_z = torch.ones_like(scales[:, -1:]) * SCALE_Z
+        #     scales = torch.cat([scales, scale_z], dim=-1)
 
 
         vert_normals = torch.tensor(mesh.vertex_normals).float().cuda()
@@ -696,6 +777,10 @@ class ClothGS:
 
         rotq = matrix_to_quaternion(norm_rotmat)
         rot6d = matrix_to_rotation_6d(norm_rotmat)
+        
+        rot_mats,scales=compute_all_local_frames(t_pose_verts, cloth_faces,global_orient=None)
+        rotq = matrix_to_quaternion(rot_mats)
+        rot6d = matrix_to_rotation_6d(rot_mats)
 
         self.normals = gs_normals
         deformed_normals = (norm_rotmat @ gs_normals.unsqueeze(-1)).squeeze(-1)
@@ -704,10 +789,36 @@ class ClothGS:
 
         posedirs = self.smpl_template.posedirs.detach().clone()
         lbs_weights = self.tailorNet_layer.tailorNet.get_w()
-        self.lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
+        lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
+        
+        
+        gs_xyzs, gs_scales, gs_rotmats, gs_lbs_weights = self.add_gs_point_in_triangle(2, t_pose_verts, cloth_faces, scales, rot_mats, lbs_weights)
+        
+        
+        gs_rotmats = torch.stack(gs_rotmats).float().cuda()
+        addition_rotq = matrix_to_quaternion(gs_rotmats)
+        addition_rot6d = matrix_to_rotation_6d(gs_rotmats)
+        
+        # self.lbs_weights = torch.from_numpy(lbs_weights).float().cuda()
+        self.lbs_weights = torch.stack(gs_lbs_weights).float().cuda()
+        scales = torch.stack(gs_scales).float().cuda()
+        rot6d = addition_rot6d
+        rotq = addition_rotq
+        
+        self.n_gs = len(gs_xyzs)
+        self._xyz = nn.Parameter(torch.stack(gs_xyzs).float().cuda(), requires_grad=True)
+        self.scaling_multiplier = torch.ones((self._xyz.shape[0], 1), device="cuda")
+        shs = torch.zeros((self._xyz.shape[0], 3, 16)).float().cuda()
+        shs[:, :3, 0] = torch.ones_like(self._xyz) * 0.5
+        shs[:, 3:, 1:] = 0.0
+        shs = shs.transpose(1, 2).contiguous()
+        opacity = torch.ones((self._xyz.shape[0], 1), dtype=torch.float, device="cuda")
+        xyz_offsets = torch.zeros_like(self._xyz)
+        
 
-        self.n_gs = t_pose_verts.shape[0]
-        self._xyz = nn.Parameter(t_pose_verts.detach(), requires_grad=False)
+
+        # self.n_gs = t_pose_verts.shape[0]
+        # self._xyz = nn.Parameter(t_pose_verts.detach(), requires_grad=False)
         #self._xyz = nn.Parameter(cloth_t_pose_verts.requires_grad_(True))
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
@@ -870,7 +981,7 @@ class ClothGS:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-    def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
+    def densify_and_split(self, grads, grad_threshold, scene_extent,distance_threshold, N=2):
         n_init_points = self.get_xyz.shape[0]
         scales = self.scales_tmp
         rotation = self.rotmat_tmp
@@ -884,6 +995,26 @@ class ClothGS:
         med = scales.median(dim=1, keepdim=True).values
         stdmed_mask = (((scales - med) / med).squeeze(-1) >= 1.0).any(dim=-1)
         selected_pts_mask = torch.logical_and(selected_pts_mask, stdmed_mask)
+        
+        pcls = Pointclouds(points=[self.get_xyz])
+            
+        points = pcls.points_packed()  # (P, 3)
+        tris = self.target_mesh.verts_packed()[self.target_mesh.faces_packed()]  # (T, 3, 3)
+        
+        dis_point_to_face = point_face_distance(
+            points,
+            pcls.cloud_to_packed_first_idx(),
+            tris,
+            self.target_mesh.mesh_to_faces_packed_first_idx(),
+            pcls.num_points_per_cloud().max().item(),
+            1e-8,
+        )  # 形状 (P,)
+        
+        distance_mask = dis_point_to_face < distance_threshold
+        
+        third_mask = distance_mask
+        
+        selected_pts_mask = torch.logical_and(selected_pts_mask, third_mask)
 
         stds = scales[selected_pts_mask].repeat(N, 1)
         means = torch.zeros((stds.size(0), 3), device="cuda")
@@ -901,14 +1032,35 @@ class ClothGS:
             (selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
 
-    def densify_and_clone(self, grads, grad_threshold, scene_extent):
+    def densify_and_clone(self, grads, grad_threshold, scene_extent,distance_threshold):
         # Extract points that satisfy the gradient condition
         scales = self.scales_tmp
         grad_cond = torch.norm(grads, dim=-1) >= grad_threshold
         scale_cond = torch.max(scales, dim=1).values <= self.percent_dense * scene_extent
 
+
+        pcls = Pointclouds(points=[self.get_xyz])
+            
+        points = pcls.points_packed()  # (P, 3)
+        tris = self.target_mesh.verts_packed()[self.target_mesh.faces_packed()]  # (T, 3, 3)
+        
+        dis_point_to_face = point_face_distance(
+            points,
+            pcls.cloud_to_packed_first_idx(),
+            tris,
+            self.target_mesh.mesh_to_faces_packed_first_idx(),
+            pcls.num_points_per_cloud().max().item(),
+            1e-8,
+        )  # 形状 (P,)
+        
+        distance_mask = dis_point_to_face < distance_threshold
+        
+        third_mask = distance_mask
+        
         selected_pts_mask = torch.where(grad_cond, True, False)
         selected_pts_mask = torch.logical_and(selected_pts_mask, scale_cond)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, third_mask)
+        
 
         new_xyz = self._xyz[selected_pts_mask]
         new_scaling_multiplier = self.scaling_multiplier[selected_pts_mask]
@@ -929,8 +1081,8 @@ class ClothGS:
         max_n_gs = max_n_gs if max_n_gs else self.get_xyz.shape[0] + 1
 
         if self.get_xyz.shape[0] <= max_n_gs:
-            self.densify_and_clone(grads, max_grad, extent)
-            self.densify_and_split(grads, max_grad, extent)
+            self.densify_and_clone(grads, max_grad, extent, distance_threshold)
+            self.densify_and_split(grads, max_grad, extent, distance_threshold)
 
         prune_mask = (self.opacity_tmp < min_opacity).squeeze()
         
