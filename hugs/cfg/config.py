@@ -43,7 +43,7 @@ cfg.train.export_smpl_uv_color_interval = 2000
 cfg.train.smpl_uv_result_path = cfg.train.results_base_path + 'smpl_uv_results/'
 cfg.train.train_process_img_path = cfg.train.results_base_path + 'train_process_imgs/'
 cfg.train.gs_save_to_disk_path = cfg.train.results_base_path +  'gs_data/'
-cfg.train.gs_save_to_disk_interval = 100
+cfg.train.gs_save_to_disk_interval = 150000
 cfg.train.gs_ply_save_to_disk_path = cfg.train.results_base_path + 'gs_ply_data/'
 cfg.train.init_opimization_iters = 15000
 cfg.train.only_rgb = True
@@ -119,43 +119,51 @@ cfg.human.loss.clothsep_w = 1
 cfg.human.loss.num_patches = 4
 cfg.human.loss.patch_size = 128
 cfg.human.loss.use_patches = 1
-cfg.human.loss.geo_dist_w = 2_000.0
+cfg.human.loss.geo_dist_w = 200.0
 
 # human model densification configuration
 cfg.human.densification_interval = 500
-cfg.human.opacity_reset_interval = 3000
+cfg.human.opacity_reset_interval = 20000
 cfg.human.densify_from_iter = 500
-cfg.human.densify_until_iter = 15000
+cfg.human.densify_until_iter = 1500
 cfg.human.densify_grad_threshold = 0.0002
 cfg.human.prune_min_opacity = 0.005
 cfg.human.densify_extent = 2.0
-cfg.human.max_n_gaussians = 2e5 / 3
+cfg.human.max_n_gaussians = 2e5 
 
 
 # upperbody model configuration
 cfg.upperbody = OmegaConf.create()
 cfg.upperbody.densification_interval = 500
-cfg.upperbody.opacity_reset_interval = 3000
+cfg.upperbody.opacity_reset_interval = 5000
 cfg.upperbody.densify_from_iter = 500
-cfg.upperbody.densify_until_iter = 15000
+cfg.upperbody.densify_until_iter = 1500
 cfg.upperbody.densify_grad_threshold = 0.0002
-cfg.upperbody.prune_min_opacity = 0.00005
+cfg.upperbody.prune_min_opacity = 0.2
+cfg.upperbody.prune_opacity_from_iter = 3000
+cfg.upperbody.prune_opacity_until_iter = 5000
+cfg.upperbody.prune_opacity_interval = 300
 cfg.upperbody.densify_extent = 2.0
-cfg.upperbody.max_n_gaussians = 2e5 / 3
-cfg.upperbody.remove_gs_distance_threshold = 0.2
+cfg.upperbody.max_n_gaussians = 2e5
+cfg.upperbody.remove_gs_distance_threshold = 0.08
+cfg.upperbody.add_gs_distance_threshold = 0.04
 
 
 # lowerbody model configuration
 cfg.lowerbody = OmegaConf.create()
 cfg.lowerbody.densification_interval = 500
-cfg.lowerbody.opacity_reset_interval = 3000
+cfg.lowerbody.opacity_reset_interval = 5000
 cfg.lowerbody.densify_from_iter = 500
-cfg.lowerbody.densify_until_iter = 15000
+cfg.lowerbody.densify_until_iter = 2600
 cfg.lowerbody.densify_grad_threshold = 0.0002
-cfg.lowerbody.prune_min_opacity = 0.00005
+cfg.lowerbody.prune_min_opacity = 0.2
+cfg.lowerbody.prune_opacity_from_iter = 3000
+cfg.lowerbody.prune_opacity_until_iter = 5000
+cfg.lowerbody.prune_opacity_interval = 300
 cfg.lowerbody.densify_extent = 2.0
-cfg.lowerbody.max_n_gaussians = 2e5 / 3
-cfg.lowerbody.remove_gs_distance_threshold = 0.2
+cfg.lowerbody.max_n_gaussians = 2e5 
+cfg.lowerbody.remove_gs_distance_threshold = 0.08
+cfg.lowerbody.add_gs_distance_threshold = 0.04
 
 # scene model configuration
 cfg.scene = OmegaConf.create()

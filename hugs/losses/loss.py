@@ -219,7 +219,8 @@ class HumanSceneLoss(nn.Module):
                 pcls.num_points_per_cloud().max().item(),
                 1e-6
             )  # 形状 (P,)
-            loss_distance = torch.mean(point_to_face)
+            dist_point_to_face = point_to_face.sqrt()
+            loss_distance = torch.mean(dist_point_to_face)
             loss_dict['ldistance_upperbody'] = loss_distance * self.l_geo_dist_w
             
             # # 计算在当前姿态下，点云到目标网格的距离，如果距离大于阈值，则将该点剔除
@@ -296,7 +297,8 @@ class HumanSceneLoss(nn.Module):
                 pcls.num_points_per_cloud().max().item(),
                 1e-6
             )  # 形状 (P,)
-            loss_distance = torch.mean(point_to_face)
+            dist_point_to_face = point_to_face.sqrt()
+            loss_distance = torch.mean(dist_point_to_face)
             loss_dict['ldistance_lowwerbody'] = loss_distance * self.l_geo_dist_w
             
             # # 计算在当前姿态下，点云到目标网格的距离，如果距离大于阈值，则将该点剔除

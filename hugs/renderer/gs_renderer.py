@@ -30,7 +30,7 @@ def render_human_scene(
     lowerbody_gs_out =None,
     cloth_bg_color=None,
     render_cloth_separate=True,
-    use_sh=True,
+    use_sh=False,
 ):
     
     

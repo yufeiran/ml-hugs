@@ -142,6 +142,8 @@ class GaussianTrainer():
             self.upperbody_gs = ClothGS(
                     garment_class='t-shirt',
                     gender='male',
+                    opacity_start_iter=cfg.upperbody.prune_opacity_from_iter,
+                    opacity_end_iter=cfg.upperbody.prune_opacity_until_iter,
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,
@@ -161,6 +163,8 @@ class GaussianTrainer():
             self.lowerbody_gs = ClothGS(
                     garment_class='pant',
                     gender='male',
+                    opacity_start_iter=cfg.lowerbody.prune_opacity_from_iter,
+                    opacity_end_iter=cfg.lowerbody.prune_opacity_until_iter,
                     sh_degree=cfg.human.sh_degree,
                     n_subdivision=cfg.human.n_subdivision,
                     use_surface=cfg.human.use_surface,
@@ -851,6 +855,13 @@ class GaussianTrainer():
                         iteration=t_iter+1,
                     )
                     
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.upperbody.prune_opacity_from_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:        
+                with torch.no_grad():
+                    self.upperbody_prune(
+                        upperbody_gs_out=upperbody_gs_out,
+                        iteration=t_iter+1,
+                    )
+                
             if self.is_human_with_cloth_separate is True and t_iter < self.cfg.lowerbody.densify_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 with torch.no_grad():
                     self.lowerbody_densification(
@@ -858,6 +869,13 @@ class GaussianTrainer():
                         visibility_filter=render_pkg['lowerbody_visibility_filter'],
                         radii=render_pkg['lowerbody_radii'],
                         viewspace_point_tensor=render_pkg['lowerbody_viewspace_points'],
+                        iteration=t_iter+1,
+                    )
+            
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.lowerbody.prune_opacity_from_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
+                with torch.no_grad():
+                    self.lowerbody_prune(
+                        lowerbody_gs_out=lowerbody_gs_out,
                         iteration=t_iter+1,
                     )
             
@@ -989,15 +1007,28 @@ class GaussianTrainer():
         if iteration > self.cfg.upperbody.densify_from_iter and iteration % self.cfg.upperbody.densification_interval == 0:
             size_threshold = 20
             self.upperbody_gs.densify_and_prune(
-                upperbody_gs_out,
-                self.cfg.upperbody.densify_grad_threshold, 
-                min_opacity=self.cfg.upperbody.prune_min_opacity, 
+                human_gs_out=upperbody_gs_out,
+                max_grad= self.cfg.upperbody.densify_grad_threshold, 
+                min_opacity=self.cfg.upperbody.prune_min_opacity,
                 extent=self.cfg.upperbody.densify_extent, 
                 max_screen_size=size_threshold,
-                distance_threshold = self.cfg.upperbody.remove_gs_distance_threshold,
+                add_gs_distance_threshold=self.cfg.upperbody.add_gs_distance_threshold,
+                remove_gs_distance_threshold=self.cfg.upperbody.remove_gs_distance_threshold,
                 max_n_gs=self.cfg.upperbody.max_n_gaussians,
-                
             )
+
+    
+    def upperbody_prune(self, upperbody_gs_out, iteration):
+        size_threshold = 20
+        if iteration > self.cfg.upperbody.prune_opacity_from_iter and iteration % self.cfg.upperbody.prune_opacity_interval == 0:
+            self.upperbody_gs.prune(
+                human_gs_out=upperbody_gs_out,
+                min_opacity=self.cfg.upperbody.prune_min_opacity,
+                extent=self.cfg.upperbody.densify_extent,
+                max_screen_size=size_threshold,
+                remove_gs_distance_threshold=self.cfg.upperbody.remove_gs_distance_threshold,
+            )
+    
     def lowerbody_densification(self, lowerbody_gs_out, visibility_filter, radii, viewspace_point_tensor, iteration):
         self.lowerbody_gs.max_radii2D[visibility_filter] = torch.max(
             self.lowerbody_gs.max_radii2D[visibility_filter], 
@@ -1009,13 +1040,26 @@ class GaussianTrainer():
         if iteration > self.cfg.lowerbody.densify_from_iter and iteration % self.cfg.lowerbody.densification_interval == 0:
             size_threshold = 20
             self.lowerbody_gs.densify_and_prune(
-                lowerbody_gs_out,
-                self.cfg.lowerbody.densify_grad_threshold, 
-                min_opacity=self.cfg.lowerbody.prune_min_opacity, 
-                extent=self.cfg.lowerbody.densify_extent, 
+                human_gs_out=lowerbody_gs_out,
+                max_grad= self.cfg.lowerbody.densify_grad_threshold,
+                min_opacity=self.cfg.lowerbody.prune_min_opacity,
+                extent=self.cfg.lowerbody.densify_extent,
                 max_screen_size=size_threshold,
-                distance_threshold=self.cfg.lowerbody.remove_gs_distance_threshold,
+                add_gs_distance_threshold=self.cfg.lowerbody.add_gs_distance_threshold,
+                remove_gs_distance_threshold=self.cfg.lowerbody.remove_gs_distance_threshold,
                 max_n_gs=self.cfg.lowerbody.max_n_gaussians,
+            )
+
+            
+    def lowerbody_prune(self, lowerbody_gs_out, iteration):
+        size_threshold = 20
+        if iteration > self.cfg.lowerbody.prune_opacity_from_iter and iteration % self.cfg.lowerbody.prune_opacity_interval == 0:
+            self.lowerbody_gs.prune(
+                human_gs_out=lowerbody_gs_out,
+                min_opacity=self.cfg.lowerbody.prune_min_opacity,
+                extent=self.cfg.lowerbody.densify_extent,
+                max_screen_size=size_threshold,
+                remove_gs_distance_threshold=self.cfg.lowerbody.remove_gs_distance_threshold,
             )
     
     @torch.no_grad()
@@ -1114,10 +1158,10 @@ class GaussianTrainer():
             
                         
             gt_upperbody_image = data['rgb']
-            upperbody_image = render_pkg["render"]
+            upperbody_image = render_pkg["upperbody_img"]
             
             gt_lowerbody_image = data['rgb']
-            lowerbody_image = render_pkg["render"]
+            lowerbody_image = render_pkg["lowerbody_img"]
             
             if self.cfg.dataset.name == 'neuman':
                 gt_upperbody_image =  gt_upperbody_image * data['upperbody_mask']

@@ -12,7 +12,7 @@ import torch.nn.functional as F
 EPS = 1e-3
 
 class TriPlane(nn.Module):
-    def __init__(self, features=32, resX=256, resY=256, resZ=256):
+    def __init__(self, features=32, resX=256, resY=256, resZ=256,scale=2.0):
         super().__init__()
         self.plane_xy = nn.Parameter(torch.randn(1, features, resX, resY))
         self.plane_xz = nn.Parameter(torch.randn(1, features, resX, resZ))
@@ -21,7 +21,7 @@ class TriPlane(nn.Module):
         self.n_input_dims = 3
         self.n_output_dims = 3 * features
         self.center = 0.0
-        self.scale = 2.0
+        self.scale = scale
 
     def forward(self, x):
         x = (x - self.center) / self.scale + 0.5

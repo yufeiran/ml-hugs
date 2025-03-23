@@ -80,14 +80,14 @@ human:
     num_patches: 4
     patch_size: 128
     use_patches: 1
-  densification_interval: 600
+  densification_interval: 500
   opacity_reset_interval: 3000
   densify_from_iter: 500
-  densify_until_iter: 15000
+  densify_until_iter: 1500
   densify_grad_threshold: 0.0002
   prune_min_opacity: 0.005
   densify_extent: 1.0
-  max_n_gaussians: 524288
+  max_n_gaussians: 200000
   percent_dense: 0.01
 scene:
   name: scene_gs

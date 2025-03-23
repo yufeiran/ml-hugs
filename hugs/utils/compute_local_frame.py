@@ -211,6 +211,8 @@ def compute_all_local_frames_batched(vertices, faces,theta,neighbor_list,padded_
         torch.full((num_vertices,), scale_normal, device=device)
     ], dim=1)  # (N, 3)
 
+    scales_all *=0.3
+
     return R_all, scales_all
 
 def compute_all_local_frames(vertices,faces,global_orient=None):
