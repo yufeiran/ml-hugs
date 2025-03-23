@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from hugs.utils.sampler import PatchSampler
+from hugs.models.clothGS import ClothGS
 from pytorch3d.structures import Meshes
 from pytorch3d.loss.point_mesh_distance import point_face_distance
 from pytorch3d.structures import Pointclouds
@@ -26,6 +27,8 @@ class HumanSceneLoss(nn.Module):
         l_humansep_w=0.0,
         l_clothsep_w=0.0,
         l_geo_dist_w=200.0,
+        l_upperbody_t_offset_w=0.1,
+        l_lowerbody_t_offset_w=0.1,
         num_patches=4,
         patch_size=32,
         use_patches=True,
@@ -41,7 +44,11 @@ class HumanSceneLoss(nn.Module):
         self.l_humansep_w = l_humansep_w
         self.l_clothsep_w = l_clothsep_w
         self.l_geo_dist_w = l_geo_dist_w
+        self.l_upperbody_t_offset_w = l_upperbody_t_offset_w
+        self.l_lowerbody_t_offset_w = l_lowerbody_t_offset_w
         self.use_patches = use_patches
+        
+        self.lambda_t = 0.1
 
         
         self.bg_color = bg_color
@@ -63,6 +70,8 @@ class HumanSceneLoss(nn.Module):
         human_bg_color=None,
         upperbody_gs_out=None,
         lowerbody_gs_out=None,
+        upperbody_gs:ClothGS = None ,
+        lowerbody_gs:ClothGS = None,
         upperbody_gs_init_values=None,
         lowerbody_gs_init_values=None,
         cloth_bg_color=None,
@@ -257,6 +266,10 @@ class HumanSceneLoss(nn.Module):
             # dists = dists_per_face.min(dim=1).values  # 形状 (N,)
             # loss_distance = torch.mean(dists)  # 平均距离损失
             # loss_dict['distance_upperbody'] = loss_distance * l_geo_dist_w
+            
+            
+            upperbody_t_offset_loss = torch.max(torch.abs(upperbody_gs.t) - self.lambda_t * upperbody_gs.avg_edge_len,torch.tensor(0.0).to(upperbody_gs.t.device)) ** 2
+            loss_dict['t_offset_upperbody'] = self.l_upperbody_t_offset_w * upperbody_t_offset_loss.mean()
 
         if is_human_with_cloth_seprate and self.l_clothsep_w > 0.0 and (render_mode == "human_scene" or render_mode == 'human_cloth'):
             pred_lowerbody_img = render_pkg['lowerbody_img']
@@ -330,6 +343,10 @@ class HumanSceneLoss(nn.Module):
             
             
             # loss_dict['lnow_distance_lowwerbody'] = now_loss_distance * self.l_geo_dist_w
+            
+            
+            lowerbody_t_offset_loss = torch.max(torch.abs(lowerbody_gs.t) - self.lambda_t * lowerbody_gs.avg_edge_len,torch.tensor(0.0).to(lowerbody_gs.t.device)) ** 2
+            loss_dict['t_offset_lowerbody'] = self.l_lowerbody_t_offset_w * lowerbody_t_offset_loss.mean()
             
 
         if is_human_with_cloth_seprate is False and self.l_clothsep_w > 0.0 and (render_mode == "human_scene" or render_mode == 'human_cloth'):

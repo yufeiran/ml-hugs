@@ -123,7 +123,7 @@ class GaussianTrainer():
                 init_betas = torch.stack([x['betas'] for x in self.val_dataset.cached_data], dim=0)
                 self.human_gs = HUGS_TRIMLP(
                     sh_degree=cfg.human.sh_degree, 
-                    n_subdivision=0,
+                    n_subdivision=1,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -145,7 +145,7 @@ class GaussianTrainer():
                     opacity_start_iter=cfg.upperbody.prune_opacity_from_iter,
                     opacity_end_iter=cfg.upperbody.prune_opacity_until_iter,
                     sh_degree=cfg.human.sh_degree,
-                    n_subdivision=cfg.human.n_subdivision,
+                    n_subdivision=0,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -166,7 +166,7 @@ class GaussianTrainer():
                     opacity_start_iter=cfg.lowerbody.prune_opacity_from_iter,
                     opacity_end_iter=cfg.lowerbody.prune_opacity_until_iter,
                     sh_degree=cfg.human.sh_degree,
-                    n_subdivision=cfg.human.n_subdivision,
+                    n_subdivision=0,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -316,10 +316,13 @@ class GaussianTrainer():
                 l_humansep_w=l.humansep_w,
                 l_clothsep_w=l.clothsep_w, # FIX ME
                 l_geo_dist_w=l.geo_dist_w,
+                l_upperbody_t_offset_w=cfg.upperbody.loss.t_offset_w,
+                l_lowerbody_t_offset_w=cfg.lowerbody.loss.t_offset_w,
                 num_patches=l.num_patches,
                 patch_size=l.patch_size,
                 use_patches=l.use_patches,
                 bg_color=self.bg_color,
+                
             )
         else:
             self.cfg.train.optim_scene = True
@@ -453,6 +456,8 @@ class GaussianTrainer():
                 upperbody_gs_init_values=self.upperbody_gs.init_values if self.upperbody_gs else None,
                 lowerbody_gs_out=lowerbody_gs_out,
                 lowerbody_gs_init_values=self.lowerbody_gs.init_values if self.lowerbody_gs else None,
+                upperbody_gs = self.upperbody_gs,
+                lowerbody_gs = self.lowerbody_gs,
                 cloth_bg_color=cloth_bg_color,
                 is_human_with_cloth_seprate=self.is_human_with_cloth_separate,
                 upperbody_gs_target_mesh=self.upperbody_gs.target_mesh if self.upperbody_gs else None,
@@ -490,6 +495,8 @@ class GaussianTrainer():
                 # if loss_dict['lnow_distance_upperbody'] exist
                 if 'lnow_distance_upperbody' in loss_dict and 'lnow_distance_lowwerbody' in loss_dict:
                     print(f'lnow_distance_upperbody {loss_dict["lnow_distance_upperbody"]} lnow_distance_lowwerbody {loss_dict["lnow_distance_lowwerbody"]}')
+                if 't_offset_upperbody' in loss_dict and 't_offset_lowerbody' in loss_dict:
+                    print(f't_offset_upperbody {loss_dict["t_offset_upperbody"]} t_offset_lowerbody {loss_dict["t_offset_lowerbody"]}')
 
             if t_iter % 500 == 0:
                 postfix_dict = {
@@ -855,7 +862,7 @@ class GaussianTrainer():
                         iteration=t_iter+1,
                     )
                     
-            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.upperbody.prune_opacity_from_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:        
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.upperbody.prune_opacity_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:        
                 with torch.no_grad():
                     self.upperbody_prune(
                         upperbody_gs_out=upperbody_gs_out,
@@ -872,7 +879,7 @@ class GaussianTrainer():
                         iteration=t_iter+1,
                     )
             
-            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.lowerbody.prune_opacity_from_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
+            if self.is_human_with_cloth_separate is True and t_iter < self.cfg.lowerbody.prune_opacity_until_iter and self.cfg.mode in ['human', 'human_scene','human_cloth']:
                 with torch.no_grad():
                     self.lowerbody_prune(
                         lowerbody_gs_out=lowerbody_gs_out,
@@ -884,11 +891,11 @@ class GaussianTrainer():
                 self.human_gs.optimizer.zero_grad(set_to_none=True)
 
             if self.upperbody_gs:
-                self.upperbody_gs.optimizer.step()
+                self.upperbody_gs.step()
                 self.upperbody_gs.optimizer.zero_grad(set_to_none=True)
 
             if self.lowerbody_gs:
-                self.lowerbody_gs.optimizer.step()
+                self.lowerbody_gs.step()
                 self.lowerbody_gs.optimizer.zero_grad(set_to_none=True)
                 
             if self.scene_gs and self.cfg.train.optim_scene:
