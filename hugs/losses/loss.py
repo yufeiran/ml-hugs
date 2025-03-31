@@ -230,6 +230,11 @@ class HumanSceneLoss(nn.Module):
             )  # 形状 (P,)
             dist_point_to_face = point_to_face.sqrt()
             loss_distance = torch.mean(dist_point_to_face)
+            # nan check
+            if torch.isnan(loss_distance):
+                loss_distance = torch.tensor(0.0).to(loss_distance.device)
+                print("ldistance_upperbody is nan!")
+            
             loss_dict['ldistance_upperbody'] = loss_distance * self.l_geo_dist_w
             
             # # 计算在当前姿态下，点云到目标网格的距离，如果距离大于阈值，则将该点剔除
@@ -269,7 +274,13 @@ class HumanSceneLoss(nn.Module):
             
             
             upperbody_t_offset_loss = torch.max(torch.abs(upperbody_gs.t) - self.lambda_t * upperbody_gs.avg_edge_len,torch.tensor(0.0).to(upperbody_gs.t.device)) ** 2
-            loss_dict['t_offset_upperbody'] = self.l_upperbody_t_offset_w * upperbody_t_offset_loss.mean()
+            upperbody_t_offset_loss = upperbody_t_offset_loss.mean()
+            # nan check
+            if torch.isnan(upperbody_t_offset_loss):
+                upperbody_t_offset_loss = torch.tensor(0.0).to(upperbody_t_offset_loss.device)
+                print("t_offset_upperbody is nan!")
+            
+            loss_dict['t_offset_upperbody'] = self.l_upperbody_t_offset_w * upperbody_t_offset_loss
 
         if is_human_with_cloth_seprate and self.l_clothsep_w > 0.0 and (render_mode == "human_scene" or render_mode == 'human_cloth'):
             pred_lowerbody_img = render_pkg['lowerbody_img']
@@ -312,6 +323,12 @@ class HumanSceneLoss(nn.Module):
             )  # 形状 (P,)
             dist_point_to_face = point_to_face.sqrt()
             loss_distance = torch.mean(dist_point_to_face)
+            
+            # nan check
+            if torch.isnan(loss_distance):
+                loss_distance = torch.tensor(0.0).to(loss_distance.device)
+                print("ldistance_lowerbody is nan!")
+            
             loss_dict['ldistance_lowwerbody'] = loss_distance * self.l_geo_dist_w
             
             # # 计算在当前姿态下，点云到目标网格的距离，如果距离大于阈值，则将该点剔除
@@ -346,7 +363,14 @@ class HumanSceneLoss(nn.Module):
             
             
             lowerbody_t_offset_loss = torch.max(torch.abs(lowerbody_gs.t) - self.lambda_t * lowerbody_gs.avg_edge_len,torch.tensor(0.0).to(lowerbody_gs.t.device)) ** 2
-            loss_dict['t_offset_lowerbody'] = self.l_lowerbody_t_offset_w * lowerbody_t_offset_loss.mean()
+            lowerbody_t_offset_loss = lowerbody_t_offset_loss.mean()
+            
+            # nan check
+            if torch.isnan(lowerbody_t_offset_loss):
+                lowerbody_t_offset_loss = torch.tensor(0.0).to(lowerbody_t_offset_loss.device)
+                print("t_offset_lowerbody is nan!")
+            
+            loss_dict['t_offset_lowerbody'] = self.l_lowerbody_t_offset_w * lowerbody_t_offset_loss
             
 
         if is_human_with_cloth_seprate is False and self.l_clothsep_w > 0.0 and (render_mode == "human_scene" or render_mode == 'human_cloth'):
@@ -368,7 +392,7 @@ class HumanSceneLoss(nn.Module):
             loss_dict['lpips_patch_human_with_cloth'] = self.l_lpips_w * loss_lpips_human_with_cloth * self.l_clothsep_w
         
 
-        if self.l_lbs_w > 0.0 and human_gs_out['lbs_weights'] is not None and not render_mode == "scene":
+        if self.l_lbs_w > 0.0 and 'lbs_weights'in human_gs_out.keys() and not render_mode == "scene":
             if 'gt_lbs_weights' in human_gs_out.keys():
                 loss_lbs = F.mse_loss(
                     human_gs_out['lbs_weights'], 
@@ -379,7 +403,7 @@ class HumanSceneLoss(nn.Module):
                     human_gs_init_values['lbs_weights']).mean()
             loss_dict['lbs'] = self.l_lbs_w * loss_lbs
 
-        if self.l_lbs_w > 0.0 and upperbody_gs_out is not None and upperbody_gs_out['lbs_weights'] is not None and not render_mode == "scene":
+        if self.l_lbs_w > 0.0 and upperbody_gs_out is not None and 'lbs_weights'in human_gs_out.keys() and not render_mode == "scene":
             if 'gt_lbs_weights' in upperbody_gs_out.keys():
                 loss_lbs = F.mse_loss(
                     upperbody_gs_out['lbs_weights'],
@@ -390,7 +414,7 @@ class HumanSceneLoss(nn.Module):
                     upperbody_gs_init_values['lbs_weights']).mean()
             loss_dict['lbs_upperbody'] = self.l_lbs_w * loss_lbs
 
-        if self.l_lbs_w > 0.0 and lowerbody_gs_out is not None and lowerbody_gs_out['lbs_weights'] is not None and not render_mode == "scene":
+        if self.l_lbs_w > 0.0 and lowerbody_gs_out is not None and 'lbs_weights'in human_gs_out.keys() and not render_mode == "scene":
             if 'gt_lbs_weights' in lowerbody_gs_out.keys():
                 loss_lbs = F.mse_loss(
                     lowerbody_gs_out['lbs_weights'],

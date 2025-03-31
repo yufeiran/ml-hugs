@@ -72,9 +72,28 @@ def calculateBoundingBox(mask):
     return np.array([x_min, y_min, x_max + 1, y_max + 1])
 
 
+def get_keypoints(image_path):
+
+    print("running openpose")
+
+    # get pwd
+    pwd = os.getcwd()
+    print(pwd)
+    sh_path = pwd + "/scripts/run-openpose-bin.sh"
+    
+    cmd = f"bash ./scripts/run-openpose-bin.sh {image_path}"
+    os.system(cmd)
+
+
 if __name__=='__main__':
 
-    seq = 'seattle'
+    seq = 'lab'
+
+    if len(sys.argv) > 1:
+        print(sys.argv[1])
+        seq = sys.argv[1]
+
+
 
     neu_data_path = "/mnt/data1/yu/data/ClothGS/dataset/neuman/dataset/"
 
@@ -83,6 +102,15 @@ if __name__=='__main__':
     smpl_params_path = load_smpl_path
     smpl_params = np.load(smpl_params_path)
     smpl_params = {f: smpl_params[f] for f in smpl_params.files}
+
+
+    keypoints_path = neu_data_path+seq+"/keypoints.npy"
+    if not os.path.exists(keypoints_path):
+        get_keypoints(neu_data_path+seq+"/images")
+    # get_keypoints(neu_data_path+seq+"/images")
+
+    # # load keypoints
+    # keypoints_path = neu_data_path+seq+"/keypoints"
 
 
     motion_path, start_idx, end_idx, skip = mocap_path(seq)
@@ -105,6 +133,7 @@ if __name__=='__main__':
     predictor = SamPredictor(sam)
 
     image_dir = neu_data_path+seq+"/images"
+
     human_segmented_image_dir = neu_data_path+seq+"/segmentations"
     keypoints_dir = neu_data_path+seq+"/keypoints"
     result_dir = neu_data_path+seq+"/cloth_segmented_images"
@@ -112,6 +141,8 @@ if __name__=='__main__':
     upperbody_img_path = os.path.join(result_dir,"upperbody")
     lowerbody_img_path = os.path.join(result_dir,"lowerbody")
     humanbody_img_path = os.path.join(result_dir,"humanbody")
+    mask_img_path = os.path.join(result_dir,"mask")
+    left_foot_img_path = os.path.join(result_dir,"left_foot")
     
     
     if not os.path.exists(result_dir):
@@ -122,6 +153,10 @@ if __name__=='__main__':
         os.makedirs(lowerbody_img_path)
     if not os.path.exists(humanbody_img_path):
         os.makedirs(humanbody_img_path)
+    if not os.path.exists(mask_img_path):
+        os.makedirs(mask_img_path)
+    if not os.path.exists(left_foot_img_path):
+        os.makedirs(left_foot_img_path)
         
     image_list = os.listdir(image_dir)
     
@@ -130,31 +165,106 @@ if __name__=='__main__':
     pbar = tqdm(total=len(image_list))
     
     clothSegemntation = ClothSegemntation() 
+
+    all_keypoints = np.load(os.path.join(neu_data_path+seq, "keypoints.npy"))
     
-    for image_name in img_lists:
+
+    for i in range(len(img_lists)):
+        image_name = img_lists[i]
+        # get index 
+        index = i
+        # get keypoints
+        pts = all_keypoints[index]
 
         # get basename of image
         basename = os.path.basename(image_name)
+
+        # load keypoints
+        keypoints = np.load(os.path.join(keypoints_dir,basename+".npy"))
 
         # get segemnt mask of human in human_segmented_image_dir and same name as image
         human_mask = cv2.imread(os.path.join(human_segmented_image_dir,basename))
 
         # make human mask in one channel
         human_mask = human_mask[:,:,0]
+        human_mask = human_mask.astype(np.bool_)
 
         img = cv2.imread(image_name)
+
+        img *= ~human_mask[:,:,None]
+
+        now_mask_img_path = os.path.join(mask_img_path,basename)
+
+        # save image with human mask 
+        cv2.imwrite(now_mask_img_path,img)
+
+
         predictor.set_image(img)
         
         pbar.update(1)
-        upperbody_mask,lowerbody_mask= clothSegemntation.inferOne(image_name)
+        upperbody_mask,lowerbody_mask= clothSegemntation.inferOne(now_mask_img_path)
         
         upperbody_mask = remove_small_objects(upperbody_mask, 1000)
         upperbody_box = calculateBoundingBox(upperbody_mask)
         
         lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
         lowerbody_box = calculateBoundingBox(lowerbody_mask)
+
+
+        upperbody_keypoints_coords = []
+        upperbody_keypoints_point_labels = []
+
+
+        if pts[1,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[1,:2])
+            upperbody_keypoints_point_labels.append(1)
+        if pts[2,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[2,:2])
+            upperbody_keypoints_point_labels.append(1)
+        if pts[5,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[5,:2])
+            upperbody_keypoints_point_labels.append(1)
+        if pts[10,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[10,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[13,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[13,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[0,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[0,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[15,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[15,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[16,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[16,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[17,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[17,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[18,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[18,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[4:2] > 0.5:
+            upperbody_keypoints_coords.append(pts[4,:2])
+            upperbody_keypoints_point_labels.append(0)
+        if pts[7,2] > 0.5:
+            upperbody_keypoints_coords.append(pts[7,:2])
+            upperbody_keypoints_point_labels.append(0)
+
+        # 插值1号点和8号点
+        if pts[1,2] > 0.5 and pts[8,2] > 0.5:
+            upperbody_keypoints_coords.append((pts[1,:2] + pts[8,:2]) / 2)
+            upperbody_keypoints_point_labels.append(1)
+
+
+        # make upperbody_keypoints_coords in numpy
+        upperbody_keypoints_coords = np.array(upperbody_keypoints_coords)
+        upperbody_keypoints_point_labels = np.array(upperbody_keypoints_point_labels)
         
-        upperbody_mask, _, _ = predictor.predict(box=upperbody_box)
+        # upperbody_mask, _, _ = predictor.predict(box=upperbody_box,point_coords=upperbody_keypoints_coords,point_labels=upperbody_keypoints_point_labels)
+        upperbody_mask, _, _ = predictor.predict(point_coords=upperbody_keypoints_coords,point_labels=upperbody_keypoints_point_labels)
+       
         upperbody_mask = upperbody_mask.sum(axis=0) > 0
         upperbody_mask = remove_small_objects(upperbody_mask, 1000)
         
@@ -178,8 +288,126 @@ if __name__=='__main__':
         # # draw box in img
         # # cv2.rectangle(img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
         # cv2.imwrite(fn.replace("images", "cloth_masked_sam_images/upperbody"), upperbody_mask_img)
+
+
+        # masks, _, _ = predictor.predict(pts[:, :2], np.ones_like(pts[:, 0]))
+        foot_keypoints_coords = []
+        foot_keypoints_point_labels = []
+
+
+        if pts[10,2] > 0.5:
+            foot_keypoints_coords.append(pts[11,:2])
+            foot_keypoints_point_labels.append(0)
+
+        if pts[13,2] > 0.5:
+            foot_keypoints_coords.append(pts[14,:2])
+            foot_keypoints_point_labels.append(0)
+
+        if pts[23,2] > 0.5:
+            foot_keypoints_coords.append(pts[23,:2])
+            foot_keypoints_point_labels.append(0)
+
+        if pts[22,2] > 0.5:
+            foot_keypoints_coords.append(pts[22,:2])
+            foot_keypoints_point_labels.append(0)
+
+        if pts[24,2] > 0.5:
+            foot_keypoints_coords.append(pts[24,:2])
+            foot_keypoints_point_labels.append(0)
+
+        if pts[21,2] > 0.5:
+            foot_keypoints_coords.append(pts[21,:2])
+            foot_keypoints_point_labels.append(0)
         
-        lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box)
+        if pts[19,2] > 0.5:
+            foot_keypoints_coords.append(pts[19,:2])
+            foot_keypoints_point_labels.append(0)
+        
+        if pts[20,2] > 0.5:
+            foot_keypoints_coords.append(pts[20,:2])
+            foot_keypoints_point_labels.append(0)
+        
+        if pts[10,2] > 0.5:
+            foot_keypoints_coords.append(pts[10,:2])
+            foot_keypoints_point_labels.append(1)
+        if pts[13,2] > 0.5:
+            foot_keypoints_coords.append(pts[13,:2])
+            foot_keypoints_point_labels.append(1)
+
+        #   插值9号点和10号点
+        if pts[9,2] > 0.5 and pts[10,2] > 0.5:
+            foot_keypoints_coords.append((pts[9,:2] + pts[10,:2]) / 2)
+            foot_keypoints_point_labels.append(1)
+
+            foot_keypoints_coords.append((pts[9,:2] + 2 * pts[10,:2]) / 3)
+            foot_keypoints_point_labels.append(1)
+
+        #  插值12号点和13号点
+        if pts[12,2] > 0.5 and pts[13,2] > 0.5:
+            foot_keypoints_coords.append((pts[12,:2] + pts[13,:2]) / 2)
+            foot_keypoints_point_labels.append(1) 
+
+            foot_keypoints_coords.append((pts[12,:2] + 2 * pts[13,:2]) / 3)
+            foot_keypoints_point_labels.append(1) 
+
+        #  插值10号点和11号点
+        if pts[10,2] > 0.5 and pts[11,2] > 0.5:
+            foot_keypoints_coords.append((pts[10,:2] + pts[11,:2]) / 2)
+            foot_keypoints_point_labels.append(1)
+        
+        #  插值13号点和14号点
+        if pts[13,2] > 0.5 and pts[14,2] > 0.5:
+            foot_keypoints_coords.append((pts[13,:2] + pts[14,:2]) / 2)
+            foot_keypoints_point_labels.append(1)
+
+        # if pts[9,2] > 0.5:
+        #     leftFoot_keypoints_coords.append(pts[9,:2])
+        #     leftFoot_keypoints_point_labels.append(1)
+        # if pts[11,2] > 0.5:
+        #     leftFoot_keypoints_coords.append(pts[11,:2])
+        #     leftFoot_keypoints_point_labels.append(1)
+        # if pts[12,2] > 0.5:
+        #     leftFoot_keypoints_coords.append(pts[12,:2])
+        #     leftFoot_keypoints_point_labels.append(1)
+        
+        # make leftFoot_keypoints_coords in numpy
+        foot_keypoints_coords = np.array(foot_keypoints_coords)
+        foot_keypoints_point_labels = np.array(foot_keypoints_point_labels)
+
+
+        leftFoot_mask,_,_ = predictor.predict(point_coords = foot_keypoints_coords,point_labels= foot_keypoints_point_labels)
+
+        leftFoot_mask = leftFoot_mask.sum(axis=0) > 0
+        leftFoot_mask = remove_small_objects(leftFoot_mask, 1000)
+        # draw box in cloth_mask in tensor
+        leftFoot_mask = leftFoot_mask.astype(np.bool_)
+        leftFoot_mask = ~leftFoot_mask
+        leftFoot_mask *= ~human_mask
+        leftFoot_mask = leftFoot_mask.astype(np.int8)
+        leftFoot_mask_name = img_name +"_leftFoot_mask" + ".png"
+
+        # draw leftFoot_keypoints_coords in img
+        for i in range(foot_keypoints_coords.shape[0]):
+            if foot_keypoints_point_labels[i] == 0:
+                cv2.circle(img, (int(foot_keypoints_coords[i,0]), int(foot_keypoints_coords[i,1])), 10, (255, 0, 0), -1)
+            else:
+                cv2.circle(img, (int(foot_keypoints_coords[i,0]), int(foot_keypoints_coords[i,1])), 10, (0, 0, 255), -1)
+        
+        for i in range(upperbody_keypoints_coords.shape[0]):
+            if upperbody_keypoints_point_labels[i] == 0:
+                cv2.circle(img, (int(upperbody_keypoints_coords[i,0]), int(upperbody_keypoints_coords[i,1])), 10, (255, 0, 0), -1)
+            else:
+                cv2.circle(img, (int(upperbody_keypoints_coords[i,0]), int(upperbody_keypoints_coords[i,1])), 10, (0, 255, 0), -1)
+
+        # save img 
+
+        cv2.imwrite(now_mask_img_path,img)
+
+        # save file name
+        save_name = os.path.join(left_foot_img_path,leftFoot_mask_name)
+        cv2.imwrite(save_name, leftFoot_mask * 255)
+        
+        lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box,point_coords=foot_keypoints_coords,point_labels=foot_keypoints_point_labels)
         lowerbody_mask = lowerbody_mask.sum(axis=0) > 0
         lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
         # draw box in cloth_mask in tensor
@@ -190,6 +418,7 @@ if __name__=='__main__':
         # save file name
         save_name = os.path.join(lowerbody_img_path,lowerbody_mask_name)
         cv2.imwrite(save_name, lowerbody_mask * 255)
+
         
         # # make cloth mask in bool
         # lowwerbody_mask = lowwerbody_mask.astype(np.bool)
@@ -207,7 +436,7 @@ if __name__=='__main__':
 
         upperbody_mask = upperbody_mask.astype(np.bool_)
         lowerbody_mask = lowerbody_mask.astype(np.bool_)
-        human_mask = human_mask.astype(np.bool_)
+        
 
         
         

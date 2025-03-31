@@ -49,7 +49,7 @@ from .modules.tailorNet_layer import TailorNet_Layer
 SCALE_Z = 1e-5
 
 
-class ClothGS:
+class ClothGS_wo_hashgrid:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -87,7 +87,6 @@ class ClothGS:
             disable_posedirs=False,
             triplane_res=512,
             betas=None,
-            use_multires_hashgrid=True,
     ):
         self.opacity_start_iter = opacity_start_iter
         self.opacity_end_iter = opacity_end_iter
@@ -96,7 +95,11 @@ class ClothGS:
         self.max_sh_degree = sh_degree
         self._xyz = torch.empty(0)
         self.scaling_multiplier = torch.empty(0)
-
+        self._features_dc = torch.empty(0)
+        self._features_rest = torch.empty(0)
+        self._scaling = torch.empty(0)
+        self._rotation = torch.empty(0)
+        self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
@@ -111,42 +114,14 @@ class ClothGS:
         self.init_scale_multiplier = init_scale_multiplier
         self.use_deformer = use_deformer
         self.disable_posedirs = disable_posedirs
-        self.use_multires_hashgrid = use_multires_hashgrid
         self.use_triplane = False
 
         self.deformer = 'smpl'
-
+        
         if betas is not None:
             self.create_betas(betas, requires_grad=False)
 
-        if use_multires_hashgrid:
-            n_levels = 3
-            self.hashgrid = MultiResolutionHashGrid(
-                n_levels=n_levels,
-                n_features_per_level=n_features,
-                log2_hashmap_size=18,
-                base_resolution=16,
-                max_resolution=512,
-                input_range=(-1, 1),
-            ).to('cuda')
-            self.appearance_dec = AppearanceDecoder(n_features=n_features * n_levels).to('cuda')
-            self.deformation_dec = DeformationDecoder(n_features=n_features * n_levels,
-                                                    disable_posedirs=disable_posedirs).to('cuda')
-            self.geometry_dec = GeometryDecoder(n_features=n_features * n_levels, use_surface=use_surface,scale_dim=1).to('cuda')
-        elif self.use_triplane:
-            self.triplane = TriPlane(n_features, resX=triplane_res, resY=triplane_res, resZ=triplane_res).to('cuda')
-            self.appearance_dec = AppearanceDecoder(n_features=n_features * 3).to('cuda')
-            self.deformation_dec = DeformationDecoder(n_features=n_features * 3,
-                                                    disable_posedirs=disable_posedirs).to('cuda')
-            self.geometry_dec = GeometryDecoder(n_features=n_features * 3, use_surface=use_surface,scale_dim=1).to('cuda')
-        else:
-            # use xyz as input
-            self.appearance_dec = AppearanceDecoder(n_features=3).to('cuda')
-            self.deformation_dec = DeformationDecoder(n_features=3,
-                                                    disable_posedirs=disable_posedirs).to('cuda')
-            self.geometry_dec = GeometryDecoder(n_features=3, use_surface=use_surface,scale_dim=1).to('cuda')
-
-
+    
         if n_subdivision > 0:
             logger.info(f"Subdividing SMPL model {n_subdivision} times")
             self.smpl_template = subdivide_smpl_model(smoothing=True, n_iter=n_subdivision).to(self.device)
@@ -213,6 +188,31 @@ class ClothGS:
         return self._xyz
     
     @property
+    def get_scaling(self):
+        return self.scaling_activation(self._scaling)
+    
+    @property
+    def get_rotation(self):
+        return self.rotation_activation(self._rotation)
+    
+    @property
+    def get_features(self):
+        features_dc = self._features_dc
+        if self.only_rgb:
+            return features_dc.squeeze(1)
+        else:
+            features_rest = self._features_rest
+            return torch.cat((features_dc, features_rest), dim=2)
+    
+    @property
+    def get_opacity(self):
+        return self.opacity_activation(self._opacity)
+    
+    def get_covariance(self, scaling_modifier = 1):
+        return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
+
+    
+    @property
     def get_xyz_by_uv(self,):
         # get xyz by calculate uv to xyz
         xyz = torch.zeros(self.u.shape[0], 3).to('cuda')
@@ -241,9 +241,6 @@ class ClothGS:
         return xyz
         
         
-        
-        
-
     def state_dict(self):
         save_dict = {
             'active_sh_degree': self.active_sh_degree,
@@ -297,222 +294,7 @@ class ClothGS:
         repr_str += "denom: {} \n".format(self.denom.shape)
         return repr_str
 
-    def canon_forward(self):
-        if self.use_multires_hashgrid:
-            grid_feats = self.hashgrid(self.get_xyz_by_uv)
-            appearance_out = self.appearance_dec(grid_feats)
-            geometry_out = self.geometry_dec(grid_feats)
-        elif self.use_triplane:
-            tri_feats = self.triplane(self.get_xyz_by_uv)
-            appearance_out = self.appearance_dec(tri_feats)
-            geometry_out = self.geometry_dec(tri_feats) 
-        else:
-            appearance_out = self.appearance_dec(self.get_xyz_by_uv)
-            geometry_out = self.geometry_dec(self.get_xyz_by_uv)
 
-        xyz_offsets = geometry_out['xyz']
-        gs_rot6d = geometry_out['rotations']
-        # FIXME
-        # gs_scales = geometry_out['scales'] * self.scaling_multiplier
-        gs_scales = geometry_out['scales']
-
-        gs_scales = torch.clamp(gs_scales, max=2 * torch.mean(gs_scales))
-        gs_scales = gs_scales.repeat(1, 3)  # 3 scales for each vertex
-        
-        # gs_scales 原本是 [N,2]的，现在改成[N,3]的，其中第三个维度的计算为 系数乘以前两个维度的最小值
-        # 比如 gs_scales[0] = [1,2] -> gs_scales[0] = [1,2,0.5] 
-        # scale_factor = 0.000
-        # gs_scales = torch.cat([gs_scales,torch.min(gs_scales,dim=1)[0].unsqueeze(1)*scale_factor],dim=1)
-
-        gs_opacity = appearance_out['opacity']
-        
-
-
-        gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
-
-        if self.use_deformer:
-            if self.use_multires_hashgrid:
-                deformation_out = self.deformation_dec(grid_feats)
-            elif self.use_triplane:
-                deformation_out = self.deformation_dec(tri_feats)
-            else:
-                deformation_out = self.deformation_dec(self.get_xyz_by_uv)
-            lbs_weights = deformation_out['lbs_weights']
-            lbs_weights = F.softmax(lbs_weights / 0.1, dim=-1)
-            posedirs = deformation_out['posedirs']
-            if abs(lbs_weights.sum(-1).mean().item() - 1) < 1e-7:
-                pass
-            else:
-                logger.warning(f"LBS weights should sum to 1, but it is: {lbs_weights.sum(-1).mean().item()}")
-        else:
-            lbs_weights = None
-            posedirs = None
-
-        return {
-            'xyz_offsets': xyz_offsets,
-            'scales': gs_scales,
-            'rot6d_canon': gs_rot6d,
-            'shs': gs_shs,
-            'opacity': gs_opacity,
-            'lbs_weights': lbs_weights,
-            'posedirs': posedirs,
-        }
-
-    def forward_test(
-            self,
-            canon_forward_out,
-            global_orient=None,
-            body_pose=None,
-            betas=None,
-            transl=None,
-            smpl_scale=None,
-            dataset_idx=-1,
-            is_train=False,
-            ext_tfs=None,
-    ):
-        xyz_offsets = canon_forward_out['xyz_offsets']
-        gs_rot6d = canon_forward_out['rot6d_canon']
-        gs_scales = canon_forward_out['scales']
-
-        gs_xyz = self.get_xyz_by_uv + xyz_offsets
-
-        gs_rotmat = rotation_6d_to_matrix(gs_rot6d)
-        gs_rotq = matrix_to_quaternion(gs_rotmat)
-
-        gs_opacity = canon_forward_out['opacity']
-        gs_shs = canon_forward_out['shs'].reshape(-1, 16, 3)
-
-        if self.isotropic:
-            gs_scales = torch.ones_like(gs_scales) * torch.mean(gs_scales, dim=-1, keepdim=True)
-
-        gs_scales_canon = gs_scales.clone()
-
-        if self.use_deformer:
-            lbs_weights = canon_forward_out['lbs_weights']
-            posedirs = canon_forward_out['posedirs']
-            if abs(lbs_weights.sum(-1).mean().item() - 1) < 1e-7:
-                pass
-            else:
-                logger.warning(f"LBS weights should sum to 1, but it is: {lbs_weights.sum(-1).mean().item()}")
-        else:
-            lbs_weights = None
-            posedirs = None
-
-        if hasattr(self, 'global_orient') and global_orient is None:
-            global_orient = rotation_6d_to_axis_angle(
-                self.global_orient[dataset_idx].reshape(-1, 6)).reshape(3)
-
-        if hasattr(self, 'body_pose') and body_pose is None:
-            body_pose = rotation_6d_to_axis_angle(
-                self.body_pose[dataset_idx].reshape(-1, 6)).reshape(23 * 3)
-
-        if hasattr(self, 'betas') and betas is None:
-            betas = self.betas
-
-        if hasattr(self, 'transl') and transl is None:
-            transl = self.transl[dataset_idx]
-
-        # vitruvian -> t-pose -> posed
-        # remove and reapply the blendshape
-        smpl_output = self.smpl(
-            betas=betas.unsqueeze(0),
-            body_pose=body_pose.unsqueeze(0),
-            global_orient=global_orient.unsqueeze(0),
-            disable_posedirs=False,
-            return_full_pose=True,
-        )
-
-        gt_lbs_weights = None
-        if self.use_deformer:
-            A_t2pose = smpl_output.A[0]
-            A_vitruvian2pose = A_t2pose @ self.inv_A_t2vitruvian
-            deformed_xyz, _, lbs_T, _, _ = lbs_extra(
-                A_vitruvian2pose[None], gs_xyz[None], posedirs, lbs_weights,
-                smpl_output.full_pose, disable_posedirs=self.disable_posedirs, pose2rot=True
-            )
-            deformed_xyz = deformed_xyz.squeeze(0)
-            lbs_T = lbs_T.squeeze(0)
-
-            with torch.no_grad():
-                # gt lbs is needed for lbs regularization loss
-                # predicted lbs should be close to gt lbs
-                _, gt_lbs_weights = smpl_lbsweight_top_k(
-                    lbs_weights=self.tailorNet_layer.lbs_weights,
-                    points=gs_xyz.unsqueeze(0),
-                    template_points=self.vitruvian_verts.unsqueeze(0),
-                )
-                gt_lbs_weights = gt_lbs_weights.squeeze(0)
-                if abs(gt_lbs_weights.sum(-1).mean().item() - 1) < 1e-7:
-                    pass
-                else:
-                    logger.warning(f"GT LBS weights should sum to 1, but it is: {gt_lbs_weights.sum(-1).mean().item()}")
-        else:
-            curr_offsets = (smpl_output.shape_offsets + smpl_output.pose_offsets)[0]
-            T_t2pose = smpl_output.T[0]
-            T_vitruvian2t = self.inv_T_t2vitruvian.clone()
-            T_vitruvian2t[..., :3, 3] = T_vitruvian2t[..., :3, 3] + self.canonical_offsets - curr_offsets
-            T_vitruvian2pose = T_t2pose @ T_vitruvian2t
-
-            _, lbs_T = smpl_lbsmap_top_k(
-                lbs_weights=self.smpl.lbs_weights,
-                verts_transform=T_vitruvian2pose.unsqueeze(0),
-                points=gs_xyz.unsqueeze(0),
-                template_points=self.vitruvian_verts.unsqueeze(0),
-                K=6,
-            )
-            lbs_T = lbs_T.squeeze(0)
-
-            homogen_coord = torch.ones_like(gs_xyz[..., :1])
-            gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
-            deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
-
-        if smpl_scale is not None:
-            deformed_xyz = deformed_xyz * smpl_scale.unsqueeze(0)
-            gs_scales = gs_scales * smpl_scale.unsqueeze(0)
-
-        if transl is not None:
-            deformed_xyz = deformed_xyz + transl.unsqueeze(0)
-
-        deformed_gs_rotmat = lbs_T[:, :3, :3] @ gs_rotmat
-        deformed_gs_rotq = matrix_to_quaternion(deformed_gs_rotmat)
-
-        if ext_tfs is not None:
-            tr, rotmat, sc = ext_tfs
-            deformed_xyz = (tr[..., None] + (sc[None] * (rotmat @ deformed_xyz[..., None]))).squeeze(-1)
-            gs_scales = sc * gs_scales
-
-            rotq = matrix_to_quaternion(rotmat)
-            deformed_gs_rotq = quaternion_multiply(rotq, deformed_gs_rotq)
-            deformed_gs_rotmat = quaternion_to_matrix(deformed_gs_rotq)
-
-        self.normals = torch.zeros_like(gs_xyz)
-        self.normals[:, 2] = 1.0
-
-        canon_normals = (gs_rotmat @ self.normals.unsqueeze(-1)).squeeze(-1)
-        deformed_normals = (deformed_gs_rotmat @ self.normals.unsqueeze(-1)).squeeze(-1)
-
-        deformed_gs_shs = gs_shs.clone()
-
-        return {
-            'xyz': deformed_xyz,
-            'xyz_canon': gs_xyz,
-            'xyz_offsets': xyz_offsets,
-            'scales': gs_scales,
-            'scales_canon': gs_scales_canon,
-            'rotq': deformed_gs_rotq,
-            'rotq_canon': gs_rotq,
-            'rotmat': deformed_gs_rotmat,
-            'rotmat_canon': gs_rotmat,
-            'shs': deformed_gs_shs,
-            'opacity': gs_opacity,
-            'normals': deformed_normals,
-            'normals_canon': canon_normals,
-            'active_sh_degree': self.active_sh_degree,
-            'rot6d_canon': gs_rot6d,
-            'lbs_weights': lbs_weights,
-            'posedirs': posedirs,
-            'gt_lbs_weights': gt_lbs_weights,
-        }
 
     def forward(
             self,
@@ -527,81 +309,17 @@ class ClothGS:
             ext_tfs=None,
     ):
 
-        if self.use_multires_hashgrid:
-            grid_feats = self.hashgrid(self.get_xyz_by_uv)
-            appearance_out = self.appearance_dec(grid_feats)
-            geometry_out = self.geometry_dec(grid_feats)
-        elif self.use_triplane:
-            tri_feats = self.triplane(self.get_xyz_by_uv)
-            appearance_out = self.appearance_dec(tri_feats)
-            geometry_out = self.geometry_dec(tri_feats) 
-        else:
-            appearance_out = self.appearance_dec(self.get_xyz_by_uv)
-            geometry_out = self.geometry_dec(self.get_xyz_by_uv)
-
-        xyz_offsets = geometry_out['xyz']
-        gs_rot6d = geometry_out['rotations']
+        gs_scales = self.scaling_activation(self._scaling)
+        gs_rotq = self.rotation_activation(self._rotation)
+        gs_xyz = self.get_xyz_by_uv
+        gs_opacity = self.opacity_activation(self._opacity)
+        gs_shs = self.get_features
         
-        gs_scales = geometry_out['scales'] * self.scaling_multiplier
-
-        gs_scales = torch.clamp(gs_scales, max=2 * torch.mean(gs_scales))
-
-        gs_scales = gs_scales.repeat(1, 3)  # 3 scales for each vertex
-        
-        # gs_scales 原本是 [N,2]的，现在改成[N,3]的，其中第三个维度的计算为 系数乘以前两个维度的最小值
-        # 比如 gs_scales[0] = [1,2] -> gs_scales[0] = [1,2,0.5] 
-        # scale_factor = 0.001
-        # gs_scales = torch.cat([gs_scales,torch.min(gs_scales,dim=1)[0].unsqueeze(1)*scale_factor],dim=1)
-
-        gs_xyz = self.get_xyz_by_uv + xyz_offsets
-        
-
-        gs_rotmat = rotation_6d_to_matrix(gs_rot6d)
-        
-        # make gs_rotmat to identity
-        gs_rotmat = torch.eye(3).repeat(gs_rotmat.shape[0], 1, 1).to('cuda')
-        
-        gs_rotq = matrix_to_quaternion(gs_rotmat)
-
-        if iter_num is None:
-            iter_num = 3000
-
-        # gs_opacity = appearance_out['opacity']
-        
-        # if iter_num > 2000:
-        #  # make gs_opacity to 1
-        #     gs_opacity = torch.ones(gs_opacity.shape).to('cuda')
-        if iter_num > self.opacity_start_iter and iter_num < self.opacity_end_iter:
-            gs_opacity = appearance_out['opacity']
-        else:
-            gs_opacity = torch.ones(appearance_out['opacity'].shape).to('cuda')
-        
-        gs_shs = appearance_out['shs'].reshape(-1, 16, 3)
-        
-        gs_rgb = appearance_out['rgb'].reshape(-1,3)
-
         if self.isotropic:
             gs_scales = torch.ones_like(gs_scales) * torch.mean(gs_scales, dim=-1, keepdim=True)
-
+            
         gs_scales_canon = gs_scales.clone()
-
-        if self.use_deformer:
-            if self.use_multires_hashgrid:
-                deformation_out = self.deformation_dec(grid_feats)
-            elif self.use_triplane:
-                deformation_out = self.deformation_dec(tri_feats)
-            else:
-                deformation_out = self.deformation_dec(self.get_xyz_by_uv)
-            lbs_weights = deformation_out['lbs_weights']
-            lbs_weights = F.softmax(lbs_weights / 0.1, dim=-1)
-            posedirs = deformation_out['posedirs']
-            if abs(lbs_weights.sum(-1).mean().item() - 1) < 1e-7:
-                pass
-            else:
-                logger.warning(f"LBS weights should sum to 1, but it is: {lbs_weights.sum(-1).mean().item()}")
-        else:
-            lbs_weights = None
-            posedirs = None
+        gs_rotmat = quaternion_to_matrix(gs_rotq)
 
         if hasattr(self, 'global_orient') and global_orient is None:
             global_orient = rotation_6d_to_axis_angle(
@@ -637,53 +355,25 @@ class ClothGS:
         )
 
         gt_lbs_weights = None
-        if self.use_deformer:
-            A_t2pose = smpl_output.A[0]
-            A_vitruvian2pose = A_t2pose @ self.inv_A_t2vitruvian
-            deformed_xyz, _, lbs_T, _, _ = lbs_extra(
-                A_vitruvian2pose[None], gs_xyz[None], posedirs, lbs_weights,
-                smpl_output.full_pose, disable_posedirs=self.disable_posedirs, pose2rot=True
-            )
-            deformed_xyz = deformed_xyz.squeeze(0)
-            lbs_T = lbs_T.squeeze(0)
 
-            with torch.no_grad():
-                # gt lbs is needed for lbs regularization loss
-                # predicted lbs should be close to gt lbs
-                # _, gt_lbs_weights = smpl_lbsweight_top_k(
-                #     lbs_weights=self.smpl.lbs_weights,
-                #     points=gs_xyz.unsqueeze(0),
-                #     template_points=self.vitruvian_verts.unsqueeze(0),
-                # )
-                _, gt_lbs_weights = smpl_lbsweight_top_k(
-                    lbs_weights=self.tailorNet_layer.tailorNet_lbs_weights,
-                    points=gs_xyz.unsqueeze(0),
-                    template_points=self.vitruvian_verts.unsqueeze(0),
-                )
-                gt_lbs_weights = gt_lbs_weights.squeeze(0)
-                if abs(gt_lbs_weights.sum(-1).mean().item() - 1) < 1e-7:
-                    pass
-                else:
-                    logger.warning(f"GT LBS weights should sum to 1, but it is: {gt_lbs_weights.sum(-1).mean().item()}")
-        else:
-            curr_offsets = (smpl_output.shape_offsets + smpl_output.pose_offsets)[0]
-            T_t2pose = smpl_output.T[0]
-            T_vitruvian2t = self.inv_T_t2vitruvian.clone()
-            T_vitruvian2t[..., :3, 3] = T_vitruvian2t[..., :3, 3] + self.canonical_offsets - curr_offsets
-            T_vitruvian2pose = T_t2pose @ T_vitruvian2t
+        curr_offsets = (smpl_output.shape_offsets + smpl_output.pose_offsets)[0]
+        T_t2pose = smpl_output.T[0]
+        T_vitruvian2t = self.inv_T_t2vitruvian.clone()
+        T_vitruvian2t[..., :3, 3] = T_vitruvian2t[..., :3, 3] + self.canonical_offsets - curr_offsets
+        T_vitruvian2pose = T_t2pose @ T_vitruvian2t
 
-            _, lbs_T = smpl_lbsmap_top_k(
-                lbs_weights=self.smpl.lbs_weights,
-                verts_transform=T_vitruvian2pose.unsqueeze(0),
-                points=gs_xyz.unsqueeze(0),
-                template_points=self.vitruvian_verts.unsqueeze(0),
-                K=6,
-            )
-            lbs_T = lbs_T.squeeze(0)
+        _, lbs_T = smpl_lbsmap_top_k(
+            lbs_weights=self.smpl.lbs_weights,
+            verts_transform=T_vitruvian2pose.unsqueeze(0),
+            points=gs_xyz.unsqueeze(0),
+            template_points=self.vitruvian_verts.unsqueeze(0),
+            K=6,
+        )
+        lbs_T = lbs_T.squeeze(0)
 
-            homogen_coord = torch.ones_like(gs_xyz[..., :1])
-            gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
-            deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
+        homogen_coord = torch.ones_like(gs_xyz[..., :1])
+        gs_xyz_homo = torch.cat([gs_xyz, homogen_coord], dim=-1)
+        deformed_xyz = torch.matmul(lbs_T, gs_xyz_homo.unsqueeze(-1))[..., :3, 0]
 
         # deformed_xyz = tailorNet_output.tailornet_v.float().to('cuda')
 
@@ -717,7 +407,7 @@ class ClothGS:
         return {
             'xyz': deformed_xyz,
             'xyz_canon': gs_xyz,
-            'xyz_offsets': xyz_offsets,
+            'xyz_offsets': torch.zeros_like(gs_xyz),
             'scales': gs_scales,
             'scales_canon': gs_scales_canon,
             'rotq': deformed_gs_rotq,
@@ -725,14 +415,10 @@ class ClothGS:
             'rotmat': deformed_gs_rotmat,
             'rotmat_canon': gs_rotmat,
             'shs': deformed_gs_shs,
-            'rgb': gs_rgb,
             'opacity': gs_opacity,
             'normals': deformed_normals,
             'normals_canon': canon_normals,
             'active_sh_degree': self.active_sh_degree,
-            'rot6d_canon': gs_rot6d,
-            'lbs_weights': lbs_weights,
-            'posedirs': posedirs,
             'gt_lbs_weights': gt_lbs_weights,
             'tailorNet_output': tailorNet_output,
         }
@@ -748,13 +434,23 @@ class ClothGS:
         vitruvian_pose[2] = 1.0
         vitruvian_pose[5] = -1.0
         tailor_net_output = self.tailorNet_layer(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
-        vitruvian_verts = tailor_net_output.tailornet_v
-        self.A_t2vitruvian = tailor_net_output.A[0].detach()
-        self.T_t2vitruvian = tailor_net_output.T[0].detach()
+        # vitruvian_verts = tailor_net_output.tailornet_v
+        # self.A_t2vitruvian = tailor_net_output.A[0].detach()
+        # self.T_t2vitruvian = tailor_net_output.T[0].detach()
+        # self.inv_T_t2vitruvian = torch.inverse(self.T_t2vitruvian)
+        # self.inv_A_t2vitruvian = torch.inverse(self.A_t2vitruvian)
+        # self.canonical_offsets = tailor_net_output.shape_offsets + tailor_net_output.pose_offsets
+        # self.canonical_offsets = self.canonical_offsets[0].detach()
+        # self.vitruvian_verts = vitruvian_verts.detach()
+        
+        smpl_output = self.smpl(body_pose=vitruvian_pose[None], betas=self.betas[None], disable_posedirs=False)
+        vitruvian_verts = smpl_output.vertices[0]
+
+        
+        self.T_t2vitruvian = smpl_output.T[0].detach()
         self.inv_T_t2vitruvian = torch.inverse(self.T_t2vitruvian)
-        self.inv_A_t2vitruvian = torch.inverse(self.A_t2vitruvian)
-        self.canonical_offsets = tailor_net_output.shape_offsets + tailor_net_output.pose_offsets
-        self.canonical_offsets = self.canonical_offsets[0].detach()
+        self.canonical_offsets = smpl_output.shape_offsets + smpl_output.pose_offsets
+        self.canonical_offsets = self.canonical_offsets[0]
         self.vitruvian_verts = vitruvian_verts.detach()
         
         self.target_mesh = Meshes(verts= tailor_net_output.tailornet_v[None], faces= tailor_net_output.tailornet_f[None])
@@ -961,8 +657,14 @@ class ClothGS:
             self.face_ids = torch.tensor(gs_face_ids).long().cuda().unsqueeze(-1)
             self.tri_vert_ids = torch.tensor(gs_tri_vert_ids).long().cuda()
             
+        # only for this one we need log
+        scales = torch.log(scales)
         
-
+        self._features_dc = nn.Parameter(shs[:,:,0:1].contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(shs[:,:,1:].contiguous().requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rotq.requires_grad_(True))
+        self._opacity = nn.Parameter(opacity.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz_by_uv.shape[0]), device="cuda")
         return {
             'xyz_offsets': xyz_offsets,
@@ -989,16 +691,13 @@ class ClothGS:
             {"params": self.v, "lr": 1e-4,"name":"v"},
             {"params": self.t, "lr": 1e-5,"name":"t"},
             # {'params': self.triplane.parameters(), 'lr': cfg.vembed, 'name': 'v_embed'},
-            {'params': self.geometry_dec.parameters(), 'lr': cfg.geometry, 'name': 'geometry_dec'},
-            {'params': self.appearance_dec.parameters(), 'lr': cfg.appearance, 'name': 'appearance_dec'},
-            {'params': self.deformation_dec.parameters(), 'lr': cfg.deformation, 'name': 'deform_dec'},
+            {'params': [self._features_dc], 'lr': cfg.feature, "name": "f_dc"},
+            {'params': [self._features_rest], 'lr': cfg.feature / 20.0, "name": "f_rest"},
+            {'params': [self._opacity], 'lr': cfg.opacity, "name": "opacity"},
+            {'params': [self._scaling], 'lr': cfg.scaling, "name": "scaling"},
+            {'params': [self._rotation], 'lr': cfg.rotation, "name": "rotation"}
         ]
-        if self.use_multires_hashgrid:
-            params.append({'params': self.hashgrid.parameters(), 'lr': cfg.hashgrid, 'name': 'hashgrid'})
-        if self.use_triplane:
-            params.append({'params': self.triplane.parameters(), 'lr': cfg.vembed, 'name': 'v_embed'})
-        else:
-            pass
+
 
         if hasattr(self, 'global_orient') and self.global_orient.requires_grad:
             params.append({'params': self.global_orient, 'lr': cfg.smpl_pose, 'name': 'global_orient'})
@@ -1034,6 +733,8 @@ class ClothGS:
         # keep u,v in [0,1]
         self.u.data = torch.clamp(self.u.data, 0, 1)
         self.v.data = torch.clamp(self.v.data, 0, 1)
+        
+        self.t.data = torch.clamp(self.t.data, -self.avg_edge_len*3, self.avg_edge_len*3)
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
@@ -1116,7 +817,7 @@ class ClothGS:
         keys_to_prune = {
             "u", "v","t",           # nn.Parameter
             "face_ids", "tri_vert_ids",   # 普通张量
-            "xyz", "features_dc", "opacity", "scaling", "rotation"  # 其他可能的参数
+            "_features_dc", "_features_rest", "_opacity", "_scaling", "_rotation"  # 其他可能的参数
         }
         
         optimizable_tensors = self._prune_tensors(valid_points_mask, keys_to_prune)
@@ -1132,10 +833,6 @@ class ClothGS:
                     setattr(self, key, optimizable_tensors[key])
         # self._xyz = optimizable_tensors["xyz"]
         self.scaling_multiplier = self.scaling_multiplier[valid_points_mask]
-
-        self.scales_tmp = self.scales_tmp[valid_points_mask]
-        self.opacity_tmp = self.opacity_tmp[valid_points_mask]
-        self.rotmat_tmp = self.rotmat_tmp[valid_points_mask]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -1171,44 +868,31 @@ class ClothGS:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_scaling_multiplier, new_opacity_tmp, new_scales_tmp, new_rotmat_tmp):
+    def densification_postfix(self, new_u,new_v,new_t,new_face_id, new_tri_vert_id, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation):
         d = {
-            "xyz": new_xyz,
-        }
+                "f_dc": new_features_dc,
+                "f_rest": new_features_rest,
+                "opacity": new_opacities,
+                "scaling" : new_scaling,
+                "rotation" : new_rotation}
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
-        self._xyz = optimizable_tensors["xyz"]
-        self.scaling_multiplier = torch.cat((self.scaling_multiplier, new_scaling_multiplier), dim=0)
-        self.opacity_tmp = torch.cat([self.opacity_tmp, new_opacity_tmp], dim=0)
-        self.scales_tmp = torch.cat([self.scales_tmp, new_scales_tmp], dim=0)
-        self.rotmat_tmp = torch.cat([self.rotmat_tmp, new_rotmat_tmp], dim=0)
-
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz_by_uv.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz_by_uv.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz_by_uv.shape[0]), device="cuda")
+        self._features_dc = optimizable_tensors["f_dc"]
+        self._features_rest = optimizable_tensors["f_rest"]
+        self._opacity = optimizable_tensors["opacity"]
+        self._scaling = optimizable_tensors["scaling"]
+        self._rotation = optimizable_tensors["rotation"]
         
-    def densification_postfix(self,new_u,new_v,new_t,new_face_id, new_tri_vert_id,new_scaling_multiplier, new_opacity_tmp, new_scales_tmp, new_rotmat_tmp):
         self.u = nn.Parameter(torch.cat([self.u, new_u], dim=0))
         self.v = nn.Parameter(torch.cat([self.v, new_v], dim=0))
         self.t = nn.Parameter(torch.cat([self.t, new_t], dim=0))
-        
-        self.scaling_multiplier = torch.cat((self.scaling_multiplier, new_scaling_multiplier), dim=0)
-        self.opacity_tmp = torch.cat([self.opacity_tmp, new_opacity_tmp], dim=0)
-        self.scales_tmp = torch.cat([self.scales_tmp, new_scales_tmp], dim=0)
-        self.rotmat_tmp = torch.cat([self.rotmat_tmp, new_rotmat_tmp], dim=0)
-        
-        # 合并其他属性
         self.face_ids = torch.cat([self.face_ids, new_face_id], dim=0)
         self.tri_vert_ids = torch.cat([self.tri_vert_ids, new_tri_vert_id], dim=0)
-        
-        # 更新优化器
-        self.optimizer.add_param_group({'params': self.u[-len(new_u):], 'lr': 0.01})
-        self.optimizer.add_param_group({'params': self.v[-len(new_v):], 'lr': 0.01})
-        
-        # 重置梯度统计
-        self.xyz_gradient_accum = torch.zeros((self.u.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.u.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.u.shape[0]), device="cuda")
+
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
 
     def densify_and_split(self, grads, grad_threshold, scene_extent,distance_threshold, N=2):
         n_init_points = self.get_xyz_by_uv.shape[0]
@@ -1275,15 +959,16 @@ class ClothGS:
         new_face_id = self.face_ids[selected_pts_mask].repeat(N, 1)
         new_tri_vert_id = self.tri_vert_ids[selected_pts_mask].repeat(N, 1)
         
-        new_scaling_multiplier = self.scaling_multiplier[selected_pts_mask].repeat(N, 1) / (0.8 * N)
-        new_opacity_tmp = self.opacity_tmp[selected_pts_mask].repeat(N, 1)
-        new_scales_tmp = self.scales_tmp[selected_pts_mask].repeat(N, 1)
-        new_rotmat_tmp = self.rotmat_tmp[selected_pts_mask].repeat(N, 1, 1)
+        new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+        new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
+        new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
+        new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
+        new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
 
         self.densification_postfix(new_u= new_u,new_v=new_v,new_t=new_t,new_face_id=new_face_id,
                                    new_tri_vert_id=new_tri_vert_id,
-                                   new_scaling_multiplier=new_scaling_multiplier,
-                                   new_opacity_tmp=new_opacity_tmp,new_scales_tmp= new_scales_tmp,new_rotmat_tmp= new_rotmat_tmp)
+                                   new_features_dc=new_features_dc, new_features_rest=new_features_rest,
+                                   new_opacities=new_opacity, new_scaling=new_scaling, new_rotation=new_rotation)
 
         prune_filter = torch.cat(
             (selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
@@ -1338,28 +1023,24 @@ class ClothGS:
         
         new_t = self.t[selected_pts_mask] + torch.rand_like(self.t[selected_pts_mask]) * noise_scale * 0.05
 
-        
         new_face_id = self.face_ids[selected_pts_mask]
         new_tri_vert_id = self.tri_vert_ids[selected_pts_mask]
         
-        new_scaling_multiplier = self.scaling_multiplier[selected_pts_mask]
-        new_opacity_tmp = self.opacity_tmp[selected_pts_mask]
-        new_scales_tmp = self.scales_tmp[selected_pts_mask]
-        new_rotmat_tmp = self.rotmat_tmp[selected_pts_mask]
+        new_features_dc = self._features_dc[selected_pts_mask]
+        new_features_rest = self._features_rest[selected_pts_mask]
+        new_opacities = self._opacity[selected_pts_mask]
+        new_scaling = self._scaling[selected_pts_mask]
+        new_rotation = self._rotation[selected_pts_mask]
 
         # self.densification_postfix(new_xyz, new_scaling_multiplier, new_opacity_tmp, new_scales_tmp, new_rotmat_tmp)
         self.densification_postfix(new_u= new_u,new_v=new_v,new_t=new_t,new_face_id=new_face_id,
-                            new_tri_vert_id=new_tri_vert_id,
-                            new_scaling_multiplier=new_scaling_multiplier,
-                            new_opacity_tmp=new_opacity_tmp,new_scales_tmp= new_scales_tmp,new_rotmat_tmp= new_rotmat_tmp)
+                                   new_tri_vert_id=new_tri_vert_id,
+                                   new_features_dc=new_features_dc, new_features_rest=new_features_rest,
+                                   new_opacities=new_opacities, new_scaling=new_scaling, new_rotation=new_rotation)
 
     def densify_and_prune(self, human_gs_out, max_grad, min_opacity, extent, max_screen_size, add_gs_distance_threshold,remove_gs_distance_threshold, max_n_gs=None):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
-
-        self.opacity_tmp = human_gs_out['opacity']
-        self.scales_tmp = human_gs_out['scales_canon']
-        self.rotmat_tmp = human_gs_out['rotmat_canon']
 
         max_n_gs = max_n_gs if max_n_gs else self.get_xyz.shape[0] + 1
 
@@ -1369,7 +1050,7 @@ class ClothGS:
             
         need_prune = False
         if need_prune:
-            prune_mask = (self.opacity_tmp < min_opacity).squeeze()
+            prune_mask = (self.get_opacity < min_opacity).squeeze()
             
             if max_screen_size:
                 big_points_vs = self.max_radii2D > max_screen_size
@@ -1404,12 +1085,8 @@ class ClothGS:
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
-        self.opacity_tmp = human_gs_out['opacity']
-        self.scales_tmp = human_gs_out['scales_canon']
-        self.rotmat_tmp = human_gs_out['rotmat_canon']
-
         
-        prune_mask = (self.opacity_tmp < min_opacity).squeeze()
+        prune_mask = (self.get_opacity < min_opacity).squeeze()
         
         print("ClothGS::prune() prune_count:",prune_mask.sum())
         

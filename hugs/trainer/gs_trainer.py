@@ -46,6 +46,7 @@ from hugs.losses.loss import HumanSceneLoss
 from hugs.models.hugs_trimlp import HUGS_TRIMLP
 from hugs.models.hugs_wo_trimlp import HUGS_WO_TRIMLP
 from hugs.models.clothGS import ClothGS
+from hugs.models.clothGS_wo_hashgrid import ClothGS_wo_hashgrid
 from hugs.models import SceneGS
 from hugs.utils.init_opt import optimize_init
 from hugs.renderer.gs_renderer import render_human_scene
@@ -123,7 +124,7 @@ class GaussianTrainer():
                 init_betas = torch.stack([x['betas'] for x in self.val_dataset.cached_data], dim=0)
                 self.human_gs = HUGS_TRIMLP(
                     sh_degree=cfg.human.sh_degree, 
-                    n_subdivision=1,
+                    n_subdivision=2,
                     use_surface=cfg.human.use_surface,
                     init_2d=cfg.human.init_2d,
                     rotate_sh=cfg.human.rotate_sh,
@@ -139,47 +140,93 @@ class GaussianTrainer():
                 if not cfg.eval:
                     self.human_gs.initialize()
                     self.human_gs = optimize_init(self.human_gs, num_steps=self.cfg.train.init_opimization_iters)
-            self.upperbody_gs = ClothGS(
-                    garment_class='t-shirt',
-                    gender='male',
-                    opacity_start_iter=cfg.upperbody.prune_opacity_from_iter,
-                    opacity_end_iter=cfg.upperbody.prune_opacity_until_iter,
-                    sh_degree=cfg.human.sh_degree,
-                    n_subdivision=0,
-                    use_surface=cfg.human.use_surface,
-                    init_2d=cfg.human.init_2d,
-                    rotate_sh=cfg.human.rotate_sh,
-                    isotropic=cfg.human.isotropic,
-                    init_scale_multiplier=cfg.human.init_scale_multiplier,
-                    n_features=32,
-                    use_deformer=cfg.human.use_deformer,
-                    disable_posedirs=cfg.human.disable_posedirs,
-                    triplane_res=cfg.human.triplane_res,
-                    betas=init_betas[0])
-            if not cfg.eval:
+            if self.cfg.upperbody.use_multires_hashgrid:
+                self.upperbody_gs = ClothGS(
+                        garment_class=self.train_dataset.upperbody_type,
+                        gender=self.train_dataset.gender,
+                        opacity_start_iter=cfg.upperbody.prune_opacity_from_iter,
+                        opacity_end_iter=cfg.upperbody.prune_opacity_until_iter,
+                        sh_degree=cfg.human.sh_degree,
+                        n_subdivision=0,
+                        use_surface=cfg.human.use_surface,
+                        init_2d=cfg.human.init_2d,
+                        rotate_sh=cfg.human.rotate_sh,
+                        isotropic=cfg.human.isotropic,
+                        init_scale_multiplier=cfg.human.init_scale_multiplier,
+                        n_features=32,
+                        use_deformer=cfg.human.use_deformer,
+                        disable_posedirs=cfg.human.disable_posedirs,
+                        triplane_res=cfg.human.triplane_res,
+                        betas=init_betas[0],
+                        use_multires_hashgrid=cfg.upperbody.use_multires_hashgrid,)
+                if not cfg.eval:
+                    self.upperbody_gs.initialize()
+                    self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=self.cfg.train.init_opimization_iters)
+            else:
+                self.upperbody_gs = ClothGS_wo_hashgrid(
+                        garment_class=self.train_dataset.upperbody_type,
+                        gender=self.train_dataset.gender,
+                        opacity_start_iter=cfg.upperbody.prune_opacity_from_iter,
+                        opacity_end_iter=cfg.upperbody.prune_opacity_until_iter,
+                        sh_degree=cfg.human.sh_degree,
+                        n_subdivision=0,
+                        use_surface=cfg.human.use_surface,
+                        init_2d=cfg.human.init_2d,
+                        rotate_sh=cfg.human.rotate_sh,
+                        isotropic=cfg.human.isotropic,
+                        init_scale_multiplier=cfg.human.init_scale_multiplier,
+                        n_features=32,
+                        use_deformer=cfg.human.use_deformer,
+                        disable_posedirs=cfg.human.disable_posedirs,
+                        triplane_res=cfg.human.triplane_res,
+                        betas=init_betas[0],)
+                init_betas = torch.stack([x['betas'] for x in self.train_dataset.cached_data], dim=0)
+                self.upperbody_gs.create_betas(init_betas[0], cfg.human.optim_betas)
                 self.upperbody_gs.initialize()
-                self.upperbody_gs = optimize_init(self.upperbody_gs, num_steps=self.cfg.train.init_opimization_iters)
 
-            self.lowerbody_gs = ClothGS(
-                    garment_class='pant',
-                    gender='male',
-                    opacity_start_iter=cfg.lowerbody.prune_opacity_from_iter,
-                    opacity_end_iter=cfg.lowerbody.prune_opacity_until_iter,
-                    sh_degree=cfg.human.sh_degree,
-                    n_subdivision=0,
-                    use_surface=cfg.human.use_surface,
-                    init_2d=cfg.human.init_2d,
-                    rotate_sh=cfg.human.rotate_sh,
-                    isotropic=cfg.human.isotropic,
-                    init_scale_multiplier=cfg.human.init_scale_multiplier,
-                    n_features=32,
-                    use_deformer=cfg.human.use_deformer,
-                    disable_posedirs=cfg.human.disable_posedirs,
-                    triplane_res=cfg.human.triplane_res,
-                    betas=init_betas[0])
-            if not cfg.eval:
+            if self.cfg.lowerbody.use_multires_hashgrid:
+                self.lowerbody_gs = ClothGS(
+                        garment_class=self.train_dataset.lowerbody_type,
+                        gender=self.train_dataset.gender,
+                        opacity_start_iter=cfg.lowerbody.prune_opacity_from_iter,
+                        opacity_end_iter=cfg.lowerbody.prune_opacity_until_iter,
+                        sh_degree=cfg.human.sh_degree,
+                        n_subdivision=0,
+                        use_surface=cfg.human.use_surface,
+                        init_2d=cfg.human.init_2d,
+                        rotate_sh=cfg.human.rotate_sh,
+                        isotropic=cfg.human.isotropic,
+                        init_scale_multiplier=cfg.human.init_scale_multiplier,
+                        n_features=32,
+                        use_deformer=cfg.human.use_deformer,
+                        disable_posedirs=cfg.human.disable_posedirs,
+                        triplane_res=cfg.human.triplane_res,
+                        betas=init_betas[0],
+                        use_multires_hashgrid=cfg.lowerbody.use_multires_hashgrid,)
+                if not cfg.eval:
+                    self.lowerbody_gs.initialize()
+                    self.lowerbody_gs = optimize_init(self.lowerbody_gs, num_steps=self.cfg.train.init_opimization_iters)
+            else:
+                self.lowerbody_gs = ClothGS_wo_hashgrid(
+                        garment_class=self.train_dataset.lowerbody_type,
+                        gender=self.train_dataset.gender,
+                        opacity_start_iter=cfg.lowerbody.prune_opacity_from_iter,
+                        opacity_end_iter=cfg.lowerbody.prune_opacity_until_iter,
+                        sh_degree=cfg.human.sh_degree,
+                        n_subdivision=0,
+                        use_surface=cfg.human.use_surface,
+                        init_2d=cfg.human.init_2d,
+                        rotate_sh=cfg.human.rotate_sh,
+                        isotropic=cfg.human.isotropic,
+                        init_scale_multiplier=cfg.human.init_scale_multiplier,
+                        n_features=32,
+                        use_deformer=cfg.human.use_deformer,
+                        disable_posedirs=cfg.human.disable_posedirs,
+                        triplane_res=cfg.human.triplane_res,
+                        betas=init_betas[0],)
+                init_betas = torch.stack([x['betas'] for x in self.train_dataset.cached_data], dim=0)
+                self.lowerbody_gs.create_betas(init_betas[0], cfg.human.optim_betas)
                 self.lowerbody_gs.initialize()
-                self.lowerbody_gs = optimize_init(self.lowerbody_gs, num_steps=self.cfg.train.init_opimization_iters)
         
         if cfg.mode in ['scene', 'human_scene']:
             self.scene_gs = SceneGS(
@@ -354,6 +401,11 @@ class GaussianTrainer():
         rand_idx_iter = RandomIndexIterator(len(self.train_dataset))
         sgrad_means, sgrad_stds = [], []
         for t_iter in range(self.cfg.train.num_steps+1):
+            
+            if t_iter == 200:
+                ddd=0
+                pass
+            
             render_mode = self.cfg.mode
             
             if self.scene_gs and self.cfg.train.optim_scene:
@@ -369,23 +421,14 @@ class GaussianTrainer():
                 continue
             
             human_gs_out, upperbody_gs_out,lowerbody_gs_out, scene_gs_out = None, None, None, None
+
+            global_orient = rotation_6d_to_axis_angle(self.upperbody_gs.global_orient[rnd_idx].reshape(-1, 6)).reshape(3)
+            body_pose = rotation_6d_to_axis_angle(self.upperbody_gs.body_pose[rnd_idx].reshape(-1, 6)).reshape(23*3)
+            betas = self.upperbody_gs.betas
+            transl = self.upperbody_gs.transl[rnd_idx]
             
             if self.human_gs:
                 human_gs_out = self.human_gs.forward(
-                    smpl_scale=data['smpl_scale'][None],
-                    dataset_idx=rnd_idx,
-                    is_train=True,
-                    ext_tfs=None,
-                )
-                
-                global_orient = rotation_6d_to_axis_angle(self.human_gs.global_orient[rnd_idx].reshape(-1, 6)).reshape(3)
-                body_pose = rotation_6d_to_axis_angle(self.human_gs.body_pose[rnd_idx].reshape(-1, 6)).reshape(23*3)
-                betas = self.human_gs.betas
-                transl = self.human_gs.transl[rnd_idx]
-                
-            if self.upperbody_gs:
-                upperbody_gs_out = self.upperbody_gs.forward(
-                    iter_num=t_iter,
                     smpl_scale=data['smpl_scale'][None],
                     dataset_idx=rnd_idx,
                     is_train=True,
@@ -395,6 +438,15 @@ class GaussianTrainer():
                     betas=betas,
                     transl=transl,
                 )
+
+                upperbody_gs_out = self.upperbody_gs.forward(
+                    iter_num=t_iter,
+                    smpl_scale=data['smpl_scale'][None],
+                    dataset_idx=rnd_idx,
+                    is_train=True,
+                    ext_tfs=None,
+                )
+
             if self.lowerbody_gs:
                 lowerbody_gs_out = self.lowerbody_gs.forward(
                     iter_num=t_iter,
@@ -438,6 +490,7 @@ class GaussianTrainer():
                 render_mode=render_mode,
                 render_human_separate=render_human_separate,
                 render_cloth_separate=self.is_human_with_cloth_separate,
+                use_sh=self.cfg.train.use_sh,
 
             )
             
@@ -467,6 +520,10 @@ class GaussianTrainer():
             loss.backward()
             
             loss_dict['loss'] = loss
+
+            if t_iter % 1000 == 0:
+                save_params_path = f'{self.cfg.logdir_ckpt}/human_params_{t_iter:06d}.pth'
+                self.upperbody_gs.save_opimizer_params(save_params_path)
 
             if t_iter % 10 == 0:
                 
@@ -1087,6 +1144,9 @@ class GaussianTrainer():
         for idx, data in enumerate(tqdm(self.val_dataset, desc="Validation")):
             human_gs_out,upperbody_gs_out,lowerbody_gs_out, scene_gs_out = None,None,None, None
             render_mode = self.cfg.mode
+
+            if data['lowerbody_mask'].max() == 0 or data['upperbody_mask'].max() == 0:
+                continue
             
             if self.human_gs:
                 human_gs_out = self.human_gs.forward(
@@ -1142,6 +1202,7 @@ class GaussianTrainer():
                 scene_gs_out=scene_gs_out,
                 bg_color=bg_color,
                 render_mode=render_mode,
+                use_sh=self.cfg.train.use_sh,
             )
             
             gt_image = data['rgb']
@@ -1288,6 +1349,7 @@ class GaussianTrainer():
                 scene_gs_out=scene_gs_out, 
                 bg_color=self.bg_color,
                 render_mode=self.cfg.mode,
+                use_sh=self.cfg.train.use_sh,
             )
             
             image = render_pkg["render"]
@@ -1311,6 +1373,7 @@ class GaussianTrainer():
         os.makedirs(f'{self.cfg.logdir}/canon/', exist_ok=True)
         os.makedirs(f'{self.cfg.logdir}/upperbody_canon/', exist_ok=True)
         os.makedirs(f'{self.cfg.logdir}/lowerbody_canon/', exist_ok=True)
+        os.makedirs(f'{self.cfg.logdir}/human_with_cloth_canon/', exist_ok=True)
         
         camera_params = get_rotating_camera(
             dist=5.0, img_size=256 if is_train_progress else 512, 
@@ -1329,6 +1392,7 @@ class GaussianTrainer():
             progress_imgs = []
             upperbody_progress_imgs = []
             lowerbody_progress_imgs = []
+            human_with_cloth_progress_imgs = []
         
         pbar = range(nframes) if is_train_progress else tqdm(range(nframes), desc="Canonical:")
         
@@ -1383,6 +1447,7 @@ class GaussianTrainer():
                     bg_color=self.bg_color,
                     render_mode='human',
                     scaling_modifier=scale_mod,
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 image = render_pkg["render"]
@@ -1398,6 +1463,7 @@ class GaussianTrainer():
                     bg_color=self.bg_color,
                     render_mode='upperbody',
                     scaling_modifier=scale_mod,
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 upperbody_image = upperbody_render_pkg["render"]
@@ -1413,6 +1479,7 @@ class GaussianTrainer():
                     bg_color=self.bg_color,
                     render_mode='lowerbody',
                     scaling_modifier=scale_mod,
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 lowerbody_image = lowerbody_render_pkg["render"]
@@ -1425,6 +1492,7 @@ class GaussianTrainer():
                     scene_gs_out=scene_gs_out, 
                     bg_color=self.bg_color,
                     render_mode='human',
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 image = render_pkg["render"]
@@ -1439,6 +1507,7 @@ class GaussianTrainer():
                     lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
                     render_mode='upperbody',
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 upperbody_image = upperbody_render_pkg["render"]
@@ -1453,11 +1522,27 @@ class GaussianTrainer():
                     lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
                     render_mode='lowerbody',
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 lowerbody_image = lowerbody_render_pkg["render"]
 
                 lowerbody_progress_imgs.append(lowerbody_image)
+
+                human_with_cloth_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='human_cloth',
+                    use_sh=self.cfg.train.use_sh,
+                )
+
+                human_with_cloth_image = human_with_cloth_render_pkg["render"]
+
+                human_with_cloth_progress_imgs.append(human_with_cloth_image)
                 
             else:
                 render_pkg = render_human_scene(
@@ -1466,6 +1551,7 @@ class GaussianTrainer():
                     scene_gs_out=scene_gs_out, 
                     bg_color=self.bg_color,
                     render_mode='human',
+                    use_sh=self.cfg.train.use_sh,
                 )
                 
                 image = render_pkg["render"]
@@ -1480,6 +1566,7 @@ class GaussianTrainer():
                     lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
                     render_mode='upperbody',
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 upperbody_image = upperbody_render_pkg["render"]
@@ -1494,11 +1581,27 @@ class GaussianTrainer():
                     lowerbody_gs_out=lowerbody_gs_out,
                     bg_color=self.bg_color,
                     render_mode='lowerbody',
+                    use_sh=self.cfg.train.use_sh,
                 )
 
                 lowerbody_image = lowerbody_render_pkg["render"]
 
                 torchvision.utils.save_image(lowerbody_image, f'{self.cfg.logdir}/lowerbody_canon/{idx:05d}.png')
+
+                human_with_cloth_render_pkg = render_human_scene(
+                    data=data,
+                    human_gs_out=human_gs_out,
+                    scene_gs_out=scene_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    bg_color=self.bg_color,
+                    render_mode='human_cloth',
+                    use_sh=self.cfg.train.use_sh,
+                )
+
+                human_with_cloth_image = human_with_cloth_render_pkg["render"]
+
+                torchvision.utils.save_image(human_with_cloth_image, f'{self.cfg.logdir}/human_with_cloth_canon/{idx:05d}.png')
         
         if is_train_progress:
             os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
@@ -1516,6 +1619,11 @@ class GaussianTrainer():
             save_image(lowerbody_log_img, f'{self.cfg.logdir}/train_progress/lowerbody{iter:06d}.png',
                        text_labels=f"{iter:06d}, n_gs={self.lowerbody_gs.n_gs}")
 
+            os.makedirs(f'{self.cfg.logdir}/train_progress/', exist_ok=True)
+            human_with_cloth_log_img = torchvision.utils.make_grid(human_with_cloth_progress_imgs, nrow=4, pad_value=0)
+            save_image(human_with_cloth_log_img, f'{self.cfg.logdir}/train_progress/human_with_cloth{iter:06d}.png',
+                       text_labels=f"{iter:06d}, n_gs={self.human_gs.n_gs}")
+
             return
         
         video_fname = f'{self.cfg.logdir}/canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
@@ -1532,6 +1640,11 @@ class GaussianTrainer():
         create_video(f'{self.cfg.logdir}/lowerbody_canon/', video_fname, fps=10)
         shutil.rmtree(f'{self.cfg.logdir}/lowerbody_canon/')
         os.makedirs(f'{self.cfg.logdir}/lowerbody_canon/')
+
+        video_fname = f'{self.cfg.logdir}/human_with_cloth_canon_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
+        create_video(f'{self.cfg.logdir}/human_with_cloth_canon/', video_fname, fps=10)
+        shutil.rmtree(f'{self.cfg.logdir}/human_with_cloth_canon/')
+        os.makedirs(f'{self.cfg.logdir}/human_with_cloth_canon/')
 
         
     def render_poses(self, camera_params, smpl_params, pose_type='a_pose', bg_color='white'):
@@ -1592,6 +1705,7 @@ class GaussianTrainer():
                 scene_gs_out=scene_gs_out, 
                 bg_color=self.bg_color,
                 render_mode='human',
+                use_sh=self.cfg.train.use_sh,
             )
             image = render_pkg["render"]
             imgs.append(image)

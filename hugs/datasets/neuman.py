@@ -122,6 +122,34 @@ def alignment(scene_name, motion_name=None):
         manual_scale = 1
     return manual_trans, manual_rot, manual_scale
 
+def get_tailorNet_params(scene_name):
+    if os.path.basename(scene_name) == 'seattle':
+        gender = 'female'
+        upperbody = 'shirt'
+        lowerbody = 'pant'
+    elif os.path.basename(scene_name) == 'citron':
+        gender = 'male'
+        upperbody = 't-shirt'
+        lowerbody = 'pant'
+    elif os.path.basename(scene_name) == 'parkinglot':
+        gender = 'male'
+        upperbody = 'shirt'
+        lowerbody = 'pant'
+    elif os.path.basename(scene_name) == 'bike':
+        gender = 'male'
+        upperbody = 'shirt'
+        lowerbody = 'pant'
+    elif os.path.basename(scene_name) == 'jogging':
+        gender = 'male'
+        upperbody = 't-shirt'
+        lowerbody = 'pant'
+    elif os.path.basename(scene_name) == 'lab':
+        gender = 'male'
+        upperbody = 'shirt'
+        lowerbody = 'pant'
+    return gender, upperbody, lowerbody
+
+
 
 def rendering_caps(scene_name, nframes, scene):
     if os.path.basename(scene_name) == 'seattle':
@@ -205,6 +233,11 @@ class NeumanDataset(torch.utils.data.Dataset):
         smpl_params_path = f'{dataset_path}/4d_humans/smpl_optimized_aligned_scale.npz'        
         smpl_params = np.load(smpl_params_path)
         smpl_params = {f: smpl_params[f] for f in smpl_params.files}
+
+        gender, upperbody, lowerbody = get_tailorNet_params(seq)
+        self.gender = gender
+        self.upperbody_type = upperbody
+        self.lowerbody_type = lowerbody
         
         if split == 'anim':
             motion_path, start_idx, end_idx, skip = mocap_path(seq)
@@ -228,6 +261,7 @@ class NeumanDataset(torch.utils.data.Dataset):
             nframes = poses.shape[0]
             caps = rendering_caps(seq, nframes, scene)
             scene.captures = caps
+
         else:
             self.train_split, _, self.val_split = get_data_splits(scene)
         

@@ -22,7 +22,7 @@ train:
   save_progress_images: false
   progress_save_interval: 10
 human:
-  name: hugs_trimlp
+  name: hugs_wo_trimlp
   ckpt: null
   sh_degree: 0
   n_subdivision: 2

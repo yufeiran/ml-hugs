@@ -24,7 +24,7 @@ cfg.bg_color = 'white'
 # human dataset configuration
 cfg.dataset = OmegaConf.create()
 cfg.dataset.name = 'neuman' # 'zju', 'colmap', 'people_snapshot', 'itw'
-cfg.dataset.seq = 'citron'
+cfg.dataset.seq = 'lab'
 
 # training configuration
 cfg.train = OmegaConf.create()
@@ -45,14 +45,16 @@ cfg.train.train_process_img_path = cfg.train.results_base_path + 'train_process_
 cfg.train.gs_save_to_disk_path = cfg.train.results_base_path +  'gs_data/'
 cfg.train.gs_save_to_disk_interval = 150000
 cfg.train.gs_ply_save_to_disk_path = cfg.train.results_base_path + 'gs_ply_data/'
-cfg.train.init_opimization_iters = 15000
+cfg.train.init_opimization_iters = 500
 cfg.train.only_rgb = True
 cfg.train.pose_op_start_iter = 100
+
+cfg.train.use_sh = True
 
 
 # human model configuration
 cfg.human = OmegaConf.create()
-cfg.human.name = 'hugs'
+cfg.human.name = 'hugs_wo_trimlp'
 cfg.human.ckpt = None
 cfg.human.sh_degree = 3
 cfg.human.n_subdivision = 0
@@ -104,6 +106,7 @@ cfg.human.lr.percent_dense = 0.01
 cfg.human.lr.appearance = 1e-3
 cfg.human.lr.geometry = 1e-3
 cfg.human.lr.vembed = 1e-3
+cfg.human.lr.hashgrid = 1e-3
 cfg.human.lr.deformation = 1e-4
 # scale
 cfg.human.lr.scale_lr_w_npoints = False
@@ -137,16 +140,17 @@ cfg.upperbody = OmegaConf.create()
 cfg.upperbody.densification_interval = 500
 cfg.upperbody.opacity_reset_interval = 5000
 cfg.upperbody.densify_from_iter = 500
-cfg.upperbody.densify_until_iter = 2600
+cfg.upperbody.densify_until_iter = 2000
 cfg.upperbody.densify_grad_threshold = 0.0002
-cfg.upperbody.prune_min_opacity = 0.2
+cfg.upperbody.prune_min_opacity = 0.005
 cfg.upperbody.prune_opacity_from_iter = 3000
-cfg.upperbody.prune_opacity_until_iter = 5000
-cfg.upperbody.prune_opacity_interval = 300
+cfg.upperbody.prune_opacity_until_iter = 2500
+cfg.upperbody.prune_opacity_interval = 500
 cfg.upperbody.densify_extent = 2.0
 cfg.upperbody.max_n_gaussians = 2e5
 cfg.upperbody.remove_gs_distance_threshold = 0.08
 cfg.upperbody.add_gs_distance_threshold = 0.04
+cfg.upperbody.use_multires_hashgrid = False
 
 cfg.upperbody.loss = OmegaConf.create()
 cfg.upperbody.loss.t_offset_w = 1
@@ -157,16 +161,17 @@ cfg.lowerbody = OmegaConf.create()
 cfg.lowerbody.densification_interval = 500
 cfg.lowerbody.opacity_reset_interval = 5000
 cfg.lowerbody.densify_from_iter = 500
-cfg.lowerbody.densify_until_iter = 2600
+cfg.lowerbody.densify_until_iter = 2000
 cfg.lowerbody.densify_grad_threshold = 0.0002
-cfg.lowerbody.prune_min_opacity = 0.2
+cfg.lowerbody.prune_min_opacity = 0.005
 cfg.lowerbody.prune_opacity_from_iter = 3000
-cfg.lowerbody.prune_opacity_until_iter = 5000
-cfg.lowerbody.prune_opacity_interval = 300
+cfg.lowerbody.prune_opacity_until_iter = 2500
+cfg.lowerbody.prune_opacity_interval = 500
 cfg.lowerbody.densify_extent = 2.0
 cfg.lowerbody.max_n_gaussians = 2e5 
 cfg.lowerbody.remove_gs_distance_threshold = 0.08
 cfg.lowerbody.add_gs_distance_threshold = 0.04
+cfg.lowerbody.use_multires_hashgrid = False
 
 cfg.lowerbody.loss = OmegaConf.create()
 cfg.lowerbody.loss.t_offset_w = 1
