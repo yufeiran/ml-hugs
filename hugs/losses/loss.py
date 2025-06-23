@@ -279,6 +279,8 @@ class HumanSceneLoss(nn.Module):
             if torch.isnan(upperbody_t_offset_loss):
                 upperbody_t_offset_loss = torch.tensor(0.0).to(upperbody_t_offset_loss.device)
                 print("t_offset_upperbody is nan!")
+                # print where is nan
+                print(torch.where(torch.isnan(torch.abs(upperbody_gs.t))))
             
             loss_dict['t_offset_upperbody'] = self.l_upperbody_t_offset_w * upperbody_t_offset_loss
 

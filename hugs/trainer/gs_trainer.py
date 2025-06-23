@@ -82,11 +82,17 @@ def get_val_dataset(cfg):
 def get_anim_dataset(cfg):
     if cfg.dataset.name == 'neuman':
         logger.info(f'Loading NeuMan dataset {cfg.dataset.seq}-anim')
-        dataset = NeumanDataset(cfg.dataset.seq, 'anim', cfg.mode)
-    elif cfg.dataset.name == 'zju':
-        dataset = None
+        datasets = []
+        for animation_id in range(0, 4):
+            dataset = NeumanDataset(cfg.dataset.seq, 'anim', cfg.mode,animation_id=animation_id)
+            datasets.append(dataset)
+
+
         
-    return dataset
+    elif cfg.dataset.name == 'zju':
+        datasets = None
+        
+    return datasets
 
 
 class GaussianTrainer():
@@ -413,6 +419,12 @@ class GaussianTrainer():
             
             if hasattr(self.human_gs, 'update_learning_rate'):
                 self.human_gs.update_learning_rate(t_iter)
+                
+            if hasattr(self.upperbody_gs, 'update_learning_rate'):
+                self.upperbody_gs.update_learning_rate(t_iter)
+            
+            if hasattr(self.lowerbody_gs, 'update_learning_rate'):
+                self.lowerbody_gs.update_learning_rate(t_iter)
         
             rnd_idx = next(rand_idx_iter)
             data = self.train_dataset[rnd_idx]
@@ -1294,73 +1306,81 @@ class GaussianTrainer():
             self.human_gs.eval()
         
         os.makedirs(f'{self.cfg.logdir}/anim/', exist_ok=True)
-        
-        for idx, data in enumerate(tqdm(self.anim_dataset, desc="Animation")):
-            human_gs_out, scene_gs_out = None, None
-            
-            if self.human_gs:
-                ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
-                human_gs_out = self.human_gs.forward(
-                    global_orient=data['global_orient'],
-                    body_pose=data['body_pose'],
-                    betas=data['betas'],
-                    transl=data['transl'],
-                    smpl_scale=data['smpl_scale'][None],
-                    dataset_idx=-1,
-                    is_train=False,
-                    ext_tfs=ext_tfs,
-                )
-            if self.upperbody_gs:
-                ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
-                upperbody_gs_out = self.upperbody_gs.forward(
-                    iter_num=iter,
-                    global_orient=data['global_orient'],
-                    body_pose=data['body_pose'],
-                    betas=data['betas'],
-                    transl=data['transl'],
-                    smpl_scale=data['smpl_scale'][None],
-                    dataset_idx=-1,
-                    is_train=False,
-                    ext_tfs=ext_tfs,
-                )
 
-            if self.lowerbody_gs:
-                ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
-                lowerbody_gs_out = self.lowerbody_gs.forward(
-                    iter_num=iter,
-                    global_orient=data['global_orient'],
-                    body_pose=data['body_pose'],
-                    betas=data['betas'],
-                    transl=data['transl'],
-                    smpl_scale=data['smpl_scale'][None],
-                    dataset_idx=-1,
-                    is_train=False,
-                    ext_tfs=ext_tfs,
+        for animationId in range(len(self.anim_dataset)):
+            os.makedirs(f'{self.cfg.logdir}/anim/{animationId:02d}/', exist_ok=True)
+                
+            for idx, data in enumerate(tqdm(self.anim_dataset[animationId], desc="Animation")):
+                human_gs_out, scene_gs_out = None, None
+                
+                if self.human_gs:
+                    ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
+                    human_gs_out = self.human_gs.forward(
+                        global_orient=data['global_orient'],
+                        body_pose=data['body_pose'],
+                        betas=data['betas'],
+                        transl=data['transl'],
+                        smpl_scale=data['smpl_scale'][None],
+                        dataset_idx=-1,
+                        is_train=False,
+                        ext_tfs=ext_tfs,
+                    )
+                if self.upperbody_gs:
+                    ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
+                    upperbody_gs_out = self.upperbody_gs.forward(
+                        iter_num=iter,
+                        global_orient=data['global_orient'],
+                        body_pose=data['body_pose'],
+                        betas=data['betas'],
+                        transl=data['transl'],
+                        smpl_scale=data['smpl_scale'][None],
+                        dataset_idx=-1,
+                        is_train=False,
+                        ext_tfs=ext_tfs,
+                    )
+
+                if self.lowerbody_gs:
+                    ext_tfs = (data['manual_trans'], data['manual_rotmat'], data['manual_scale'])
+                    lowerbody_gs_out = self.lowerbody_gs.forward(
+                        iter_num=iter,
+                        global_orient=data['global_orient'],
+                        body_pose=data['body_pose'],
+                        betas=data['betas'],
+                        transl=data['transl'],
+                        smpl_scale=data['smpl_scale'][None],
+                        dataset_idx=-1,
+                        is_train=False,
+                        ext_tfs=ext_tfs,
+                    )
+                
+                if self.scene_gs:
+                    scene_gs_out = self.scene_gs.forward()
+                        
+                render_pkg = render_human_scene(
+                    data=data, 
+                    human_gs_out=human_gs_out,
+                    upperbody_gs_out=upperbody_gs_out,
+                    lowerbody_gs_out=lowerbody_gs_out,
+                    scene_gs_out=scene_gs_out, 
+                    bg_color=self.bg_color,
+                    render_mode=self.cfg.mode,
+                    use_sh=self.cfg.train.use_sh,
                 )
-            
-            if self.scene_gs:
-                scene_gs_out = self.scene_gs.forward()
-                    
-            render_pkg = render_human_scene(
-                data=data, 
-                human_gs_out=human_gs_out,
-                upperbody_gs_out=upperbody_gs_out,
-                lowerbody_gs_out=lowerbody_gs_out,
-                scene_gs_out=scene_gs_out, 
-                bg_color=self.bg_color,
-                render_mode=self.cfg.mode,
-                use_sh=self.cfg.train.use_sh,
-            )
-            
-            image = render_pkg["render"]
-            
-            torchvision.utils.save_image(image, f'{self.cfg.logdir}/anim/{idx:05d}.png')
-            
-        video_fname = f'{self.cfg.logdir}/anim_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
-        create_video(f'{self.cfg.logdir}/anim/', video_fname, fps=20)
-        if not keep_images:
-            shutil.rmtree(f'{self.cfg.logdir}/anim/')
-            os.makedirs(f'{self.cfg.logdir}/anim/')
+                
+                image = render_pkg["render"]
+                
+                # torchvision.utils.save_image(image, f'{self.cfg.logdir}/anim/{idx:05d}.png')
+                torchvision.utils.save_image(image, f'{self.cfg.logdir}/anim/{animationId:02d}/{idx:05d}.png')
+                
+            # video_fname = f'{self.cfg.logdir}/anim_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}.mp4'
+            video_fname = f'{self.cfg.logdir}/anim_{self.cfg.dataset.name}_{self.cfg.dataset.seq}_{iter_s}_{animationId:02d}.mp4'
+            # create_video(f'{self.cfg.logdir}/anim/', video_fname, fps=20)
+            create_video(f'{self.cfg.logdir}/anim/{animationId:02d}/', video_fname, fps=20)
+            if not keep_images:
+                # shutil.rmtree(f'{self.cfg.logdir}/anim/')
+                # os.makedirs(f'{self.cfg.logdir}/anim/')
+                shutil.rmtree(f'{self.cfg.logdir}/anim/{animationId:02d}/')
+                os.makedirs(f'{self.cfg.logdir}/anim/{animationId:02d}/')
     
     @torch.no_grad()
     def render_canonical(self, iter=None, nframes=100, is_train_progress=False, pose_type=None):

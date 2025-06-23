@@ -47,7 +47,7 @@ cfg.train.gs_save_to_disk_interval = 150000
 cfg.train.gs_ply_save_to_disk_path = cfg.train.results_base_path + 'gs_ply_data/'
 cfg.train.init_opimization_iters = 500
 cfg.train.only_rgb = True
-cfg.train.pose_op_start_iter = 100
+cfg.train.pose_op_start_iter = 15000
 
 cfg.train.use_sh = True
 
@@ -116,7 +116,7 @@ cfg.human.loss = OmegaConf.create()
 cfg.human.loss.ssim_w = 0.2
 cfg.human.loss.l1_w = 0.8
 cfg.human.loss.lpips_w = 1.0
-cfg.human.loss.lbs_w = 0.0
+cfg.human.loss.lbs_w = 1.0
 cfg.human.loss.humansep_w = 1
 cfg.human.loss.clothsep_w = 1
 cfg.human.loss.num_patches = 4
@@ -128,11 +128,11 @@ cfg.human.loss.geo_dist_w = 200.0
 cfg.human.densification_interval = 500
 cfg.human.opacity_reset_interval = 20000
 cfg.human.densify_from_iter = 500
-cfg.human.densify_until_iter = 1500
+cfg.human.densify_until_iter = 2500
 cfg.human.densify_grad_threshold = 0.0002
 cfg.human.prune_min_opacity = 0.005
 cfg.human.densify_extent = 2.0
-cfg.human.max_n_gaussians = 2e5 
+cfg.human.max_n_gaussians = 524288
 
 
 # upperbody model configuration
@@ -140,7 +140,7 @@ cfg.upperbody = OmegaConf.create()
 cfg.upperbody.densification_interval = 500
 cfg.upperbody.opacity_reset_interval = 5000
 cfg.upperbody.densify_from_iter = 500
-cfg.upperbody.densify_until_iter = 2000
+cfg.upperbody.densify_until_iter = 2500
 cfg.upperbody.densify_grad_threshold = 0.0002
 cfg.upperbody.prune_min_opacity = 0.005
 cfg.upperbody.prune_opacity_from_iter = 3000
@@ -161,7 +161,7 @@ cfg.lowerbody = OmegaConf.create()
 cfg.lowerbody.densification_interval = 500
 cfg.lowerbody.opacity_reset_interval = 5000
 cfg.lowerbody.densify_from_iter = 500
-cfg.lowerbody.densify_until_iter = 2000
+cfg.lowerbody.densify_until_iter = 2500
 cfg.lowerbody.densify_grad_threshold = 0.0002
 cfg.lowerbody.prune_min_opacity = 0.005
 cfg.lowerbody.prune_opacity_from_iter = 3000

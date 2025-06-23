@@ -87,7 +87,7 @@ def get_keypoints(image_path):
 
 if __name__=='__main__':
 
-    seq = 'lab'
+    seq = 'citron'
 
     if len(sys.argv) > 1:
         print(sys.argv[1])
@@ -261,7 +261,7 @@ if __name__=='__main__':
         # make upperbody_keypoints_coords in numpy
         upperbody_keypoints_coords = np.array(upperbody_keypoints_coords)
         upperbody_keypoints_point_labels = np.array(upperbody_keypoints_point_labels)
-        
+
         # upperbody_mask, _, _ = predictor.predict(box=upperbody_box,point_coords=upperbody_keypoints_coords,point_labels=upperbody_keypoints_point_labels)
         upperbody_mask, _, _ = predictor.predict(point_coords=upperbody_keypoints_coords,point_labels=upperbody_keypoints_point_labels)
        
@@ -375,6 +375,7 @@ if __name__=='__main__':
         foot_keypoints_point_labels = np.array(foot_keypoints_point_labels)
 
 
+
         leftFoot_mask,_,_ = predictor.predict(point_coords = foot_keypoints_coords,point_labels= foot_keypoints_point_labels)
 
         leftFoot_mask = leftFoot_mask.sum(axis=0) > 0
@@ -406,8 +407,19 @@ if __name__=='__main__':
         # save file name
         save_name = os.path.join(left_foot_img_path,leftFoot_mask_name)
         cv2.imwrite(save_name, leftFoot_mask * 255)
+
+        # if mask area is too small, skip
+        isLowerBodyMaskSmall = lowerbody_mask.sum() < 300
+        print("isLowerBodyMaskSmall",isLowerBodyMaskSmall)
+        print("val:",lowerbody_mask.sum())
         
-        lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box,point_coords=foot_keypoints_coords,point_labels=foot_keypoints_point_labels)
+        if isLowerBodyMaskSmall:
+            lowerbody_mask, _, _ = predictor.predict(point_coords=foot_keypoints_coords,point_labels=foot_keypoints_point_labels)
+        else:
+            lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box,point_coords=foot_keypoints_coords,point_labels=foot_keypoints_point_labels)
+
+        
+        # lowerbody_mask, _, _ = predictor.predict(box=lowerbody_box,point_coords=foot_keypoints_coords,point_labels=foot_keypoints_point_labels)
         lowerbody_mask = lowerbody_mask.sum(axis=0) > 0
         lowerbody_mask = remove_small_objects(lowerbody_mask, 1000)
         # draw box in cloth_mask in tensor

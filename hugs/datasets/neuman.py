@@ -64,29 +64,63 @@ def get_data_splits(scene):
     return train_list, val_list, test_list
 
 
-def mocap_path(scene_name):
+def mocap_path(scene_name,id=0):
     # ./data/MoSh/MPI_mosh/50027/misc_dancing_hiphop_poses.npz
     if os.path.basename(scene_name) == 'seattle': # and opt.motion_name == 'moonwalk':
-        # return './data/SFU/0018/0018_Moonwalk001_poses.npz', 0, 400, 4
-        # return './data/SFU/0005/0005_Stomping001_poses.npz', 0, 800, 4
-        return './data/SFU/0005/0005_SideSkip001_poses.npz', 0, 800, 4
+        if id == 0:
+            return './data/SFU/0018/0018_Moonwalk001_poses.npz', 0, 400, 4
+        elif id == 1:
+            return './data/SFU/0005/0005_Stomping001_poses.npz', 0, 800, 4
+        elif id == 2:
+            return './data/SFU/0005/0005_SideSkip001_poses.npz', 0, 800, 4
+        elif id == 3:
+            return './data/SFU/0008/0008_ChaCha001_poses.npz', 0, 1000, 4
     elif os.path.basename(scene_name) == 'citron': # and opt.motion_name == 'speedvault':
-        # return './data/SFU/0008/0008_ChaCha001_poses.npz', 0, 1000, 4
-        return './data/MPI_mosh/00093/irish_dance_poses.npz', 0, 1000, 4
-        # return './data/SFU/0012/0012_SpeedVault001_poses.npz', 0, 340, 2
-        # return './data/MPI_mosh/50027/misc_dancing_hiphop_poses.npz', 0, 2000, 4
+        if id == 0:
+            return './data/SFU/0005/0005_2FeetJump001_poses.npz', 0, 1200, 4
+        elif id == 1:
+            return './data/MPI_mosh/00093/irish_dance_poses.npz', 0, 1000, 4
+        elif id == 2:
+            return './data/SFU/0012/0012_SpeedVault001_poses.npz', 0, 340, 2
+        elif id == 3:
+            return './data/MPI_mosh/50027/misc_dancing_hiphop_poses.npz', 0, 2000, 4
         # return './data/SFU/0017/0017_ParkourRoll001_poses.npz', 140, 500, 4
     elif os.path.basename(scene_name) == 'parkinglot': # and opt.motion_name == 'yoga':
-        return './data/SFU/0005/0005_2FeetJump001_poses.npz', 0, 1200, 4
-        # return './data/SFU/0008/0008_Yoga001_poses.npz', 300, 1900, 8
+        if id == 0:
+            return './data/SFU/0005/0005_2FeetJump001_poses.npz', 0, 1200, 4
+        elif id == 1:
+            return './data/MPI_mosh/00093/irish_dance_poses.npz', 0, 1000, 4
+        elif id == 2:
+            return './data/SFU/0008/0008_Yoga001_poses.npz', 300, 1900, 8
+        elif id == 3:
+            return './data/MPI_mosh/50027/misc_dancing_hiphop_poses.npz', 0, 2000, 4
     elif os.path.basename(scene_name) == 'bike': # and opt.motion_name == 'jumpandroll':
-        return './data/MPI_mosh/50002/misc_poses.npz', 0, 250, 1
-        # return './data/SFU/0018/0018_Moonwalk001_poses.npz', 0, 600, 4
-        # return './data/SFU/0012/0012_JumpAndRoll001_poses.npz', 100, 400, 3
+        if id == 0:
+            return './data/MPI_mosh/50002/misc_poses.npz', 0, 250, 1
+        elif id == 1:
+            return './data/SFU/0018/0018_Moonwalk001_poses.npz', 0, 600, 4
+        elif id == 2:
+            return './data/SFU/0012/0012_JumpAndRoll001_poses.npz', 100, 400, 3
+        elif id == 3:
+            return './data/SFU/0012/0012_SpeedVault001_poses.npz', 0, 340, 2
     elif os.path.basename(scene_name) == 'jogging': # and opt.motion_name == 'cartwheel':
-        return './data/SFU/0007/0007_Cartwheel001_poses.npz', 200, 1000, 8
+        if id == 0:
+            return './data/MPI_mosh/50002/misc_poses.npz', 0, 250, 1
+        elif id == 1:
+            return './data/SFU/0018/0018_Moonwalk001_poses.npz', 0, 600, 4
+        elif id == 2:
+            return './data/SFU/0012/0012_JumpAndRoll001_poses.npz', 100, 400, 3
+        elif id == 3:
+            return './data/SFU/0007/0007_Cartwheel001_poses.npz', 200, 1000, 8
     elif os.path.basename(scene_name) == 'lab': # and opt.motion_name == 'chacha':
-        return './data/SFU/0008/0008_ChaCha001_poses.npz', 0, 1000, 4
+        if id == 0:
+            return './data/SFU/0005/0005_2FeetJump001_poses.npz', 0, 1200, 4
+        elif id == 1:
+            return './data/MPI_mosh/00093/irish_dance_poses.npz', 0, 1000, 4
+        elif id == 2:
+            return './data/SFU/0008/0008_Yoga001_poses.npz', 300, 1900, 8
+        elif id == 3:
+            return './data/SFU/0008/0008_ChaCha001_poses.npz', 0, 1000, 4
     else:
         raise ValueError('Define new elif branch')
 
@@ -221,6 +255,7 @@ class NeumanDataset(torch.utils.data.Dataset):
         num_bg_points=204_800,
         bg_sphere_dist=5.0,
         clean_pcd=False,
+        animation_id = 0,
     ):
         dataset_path = f"{NEUMAN_PATH}/{seq}"
         scene = neuman_helper.NeuManReader.read_scene(
@@ -240,7 +275,7 @@ class NeumanDataset(torch.utils.data.Dataset):
         self.lowerbody_type = lowerbody
         
         if split == 'anim':
-            motion_path, start_idx, end_idx, skip = mocap_path(seq)
+            motion_path, start_idx, end_idx, skip = mocap_path(seq,animation_id)
             motions = np.load(motion_path)
             poses = motions['poses'][start_idx:end_idx:skip, AMASS_SMPLH_TO_SMPL_JOINTS]
             transl = motions['trans'][start_idx:end_idx:skip]

@@ -112,7 +112,7 @@ class ClothGS:
         self.use_deformer = use_deformer
         self.disable_posedirs = disable_posedirs
         self.use_multires_hashgrid = use_multires_hashgrid
-        self.use_triplane = False
+        self.use_triplane = (use_multires_hashgrid is False)
 
         self.deformer = 'smpl'
 

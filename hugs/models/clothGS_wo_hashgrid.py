@@ -202,7 +202,7 @@ class ClothGS_wo_hashgrid:
             return features_dc.squeeze(1)
         else:
             features_rest = self._features_rest
-            return torch.cat((features_dc, features_rest), dim=2)
+            return torch.cat((features_dc, features_rest), dim=1)
     
     @property
     def get_opacity(self):
@@ -403,6 +403,9 @@ class ClothGS_wo_hashgrid:
         deformed_normals = (deformed_gs_rotmat @ self.normals.unsqueeze(-1)).squeeze(-1)
 
         deformed_gs_shs = gs_shs.clone()
+        
+        # make opacity 1
+        gs_opacity = torch.ones_like(gs_opacity)
 
         return {
             'xyz': deformed_xyz,
@@ -642,7 +645,7 @@ class ClothGS_wo_hashgrid:
             shs = torch.zeros((self._xyz.shape[0], 3, 16)).float().cuda() 
             shs[:, :3, 0] = torch.ones_like(self._xyz) * 0.5
             shs[:, 3:, 1:] = 0.0
-            shs = shs.transpose(1, 2).contiguous()
+            # shs = shs.transpose(1, 2).contiguous()
             opacity =  0.1 * torch.ones((self._xyz.shape[0], 1), dtype=torch.float, device="cuda")
             xyz_offsets = torch.zeros_like(self._xyz)
             
@@ -660,8 +663,11 @@ class ClothGS_wo_hashgrid:
         # only for this one we need log
         scales = torch.log(scales)
         
-        self._features_dc = nn.Parameter(shs[:,:,0:1].contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(shs[:,:,1:].contiguous().requires_grad_(True))
+        opacity = inverse_sigmoid(0.1 * torch.ones((self.get_xyz_by_uv.shape[0], 1), dtype=torch.float, device="cuda"))
+        self.normals = gs_normals
+        
+        self._features_dc = nn.Parameter(shs[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(shs[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rotq.requires_grad_(True))
         self._opacity = nn.Parameter(opacity.requires_grad_(True))
@@ -713,7 +719,7 @@ class ClothGS_wo_hashgrid:
 
         self.non_densify_params_keys = [
             'global_orient', 'body_pose', 'betas', 'transl',
-            'v_embed', 'geometry_dec', 'appearance_dec', 'deform_dec',
+            'v_embed', 'geometry_dec', 'appearance_dec', 'deform_dec','xyz','u','v','t',
         ]
 
         for param in params:
@@ -733,13 +739,31 @@ class ClothGS_wo_hashgrid:
         # keep u,v in [0,1]
         self.u.data = torch.clamp(self.u.data, 0, 1)
         self.v.data = torch.clamp(self.v.data, 0, 1)
-        
         self.t.data = torch.clamp(self.t.data, -self.avg_edge_len*3, self.avg_edge_len*3)
+        
+        
+        # check t has nan
+        if torch.isnan(self.t).any():
+            # make  t[i] = nan to zero
+            self.t.data[torch.isnan(self.t)] = 0
+            
+        # check u has nan
+        if torch.isnan(self.u).any():
+            # make  u[i] = nan to 0.5
+            self.u.data[torch.isnan(self.u)] = 0.5
+        
+        # check v has nan
+        if torch.isnan(self.v).any():
+            # make  v[i] = nan to 0.5
+            self.v.data[torch.isnan(self.v)] = 0.5
+            
+        
+
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
         for param_group in self.optimizer.param_groups:
-            if param_group["name"] == "xyz":
+            if param_group["name"] == "u":
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
                 return lr
@@ -832,7 +856,7 @@ class ClothGS_wo_hashgrid:
                     # 普通张量直接覆盖
                     setattr(self, key, optimizable_tensors[key])
         # self._xyz = optimizable_tensors["xyz"]
-        self.scaling_multiplier = self.scaling_multiplier[valid_points_mask]
+        # self.scaling_multiplier = self.scaling_multiplier[valid_points_mask]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -889,15 +913,15 @@ class ClothGS_wo_hashgrid:
         self.face_ids = torch.cat([self.face_ids, new_face_id], dim=0)
         self.tri_vert_ids = torch.cat([self.tri_vert_ids, new_tri_vert_id], dim=0)
 
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz_by_uv.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz_by_uv.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz_by_uv.shape[0]), device="cuda")
 
 
     def densify_and_split(self, grads, grad_threshold, scene_extent,distance_threshold, N=2):
         n_init_points = self.get_xyz_by_uv.shape[0]
-        scales = self.scales_tmp
-        rotation = self.rotmat_tmp
+        scales = self.get_scaling
+        rotation = self.get_rotation
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
@@ -976,7 +1000,7 @@ class ClothGS_wo_hashgrid:
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent,distance_threshold):
         # Extract points that satisfy the gradient condition
-        scales = self.scales_tmp
+        scales = self.get_scaling
         grad_cond = torch.norm(grads, dim=-1) >= grad_threshold
         scale_cond = torch.max(scales, dim=1).values <= self.percent_dense * scene_extent
 
@@ -1046,7 +1070,7 @@ class ClothGS_wo_hashgrid:
 
         if self.get_xyz.shape[0] <= max_n_gs:
             self.densify_and_clone(grads, max_grad, extent, add_gs_distance_threshold)
-            self.densify_and_split(grads, max_grad, extent, add_gs_distance_threshold)
+            # self.densify_and_split(grads, max_grad, extent, add_gs_distance_threshold)
             
         need_prune = False
         if need_prune:

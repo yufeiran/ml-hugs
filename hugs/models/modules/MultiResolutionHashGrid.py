@@ -7,7 +7,7 @@ class MultiResolutionHashGrid(nn.Module):
         self,
         n_levels=4,
         n_features_per_level=2,
-        log2_hashmap_size=18,
+        log2_hashmap_size=8, # TO BE tested !
         base_resolution=16,
         max_resolution=512,
         input_range=(-1, 1),  # 新增参数，指定输入范围
